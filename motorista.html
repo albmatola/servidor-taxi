@@ -23,7 +23,7 @@
         .badge-pago { background: #d4edda; color: #155724; }
 
         /* ==========================================
-           💬 ESTILOS DO CHAT INTEGRADO
+            💬 ESTILOS DO CHAT INTEGRADO
         ========================================== */
         .chat-container {
             border: 1px solid #ccc;
@@ -117,14 +117,13 @@
     // Inicializar o socket do lado do cliente
     let socket;
     let idViagemAtiva = null; // Guarda o ID da viagem em curso para o Chat
-    let estaAProcessar = false;
+    let estaAProcessar = false; // Bloqueia apenas cliques múltiplos em botões de ação
 
     try {
         socket = io();
         
         // Ouvir mensagens que chegam do passageiro
         socket.on('mensagem_recebida', (dados) => {
-            // Verifica se a mensagem recebida pertence à viagem que temos ativa no chat
             if (idViagemAtiva && dados.pedidoId === idViagemAtiva) {
                 adicionarMensagemAoEcrã(dados.texto, 'outra');
             }
@@ -154,10 +153,12 @@
     }
 
     function carregarPedidos() {
-        if (estaAProcessar) return;
-
+        // Removido o bloqueador "estaAProcessar" daqui para garantir que as atualizações automáticas funcionem sempre.
         fetch('/api/pedidos')
-            .then(response => response.json())
+            .then(response => {
+                if (!response.ok) throw new Error("Erro de resposta do servidor");
+                return response.json();
+            })
             .then(pedidos => {
                 const container = document.getElementById('lista-pedidos');
                 
@@ -224,22 +225,22 @@
                 container.innerHTML = '';
                 container.appendChild(fragmento);
 
-                // ==========================================
-                // LÓGICA DE EXIBIÇÃO DO CHAT CORRIGIDA
-                // ==========================================
+                // Lógica de exibição do chat
                 if (temViagemAtivaParaChat) {
-                    // Se mudámos de viagem ativa (ou se tínhamos null), limpamos o histórico antigo
                     if (idViagemAtiva !== idNovaViagemAtiva) {
                         idViagemAtiva = idNovaViagemAtiva;
                         document.getElementById('mensagens-box').innerHTML = ''; 
                     }
-                    // Força sempre a exibição do chat se houver uma viagem em curso
                     mostrarChat(idViagemAtiva);
                 } else {
                     esconderChat();
                 }
             })
-            .catch(error => console.error("Erro ao obter os pedidos:", error));
+            .catch(error => {
+                console.error("Erro ao obter os pedidos:", error);
+                const container = document.getElementById('lista-pedidos');
+                container.innerHTML = '<p class="no-pedidos" style="color: red;">Erro de ligação ao servidor. A tentar novamente...</p>';
+            });
     }
 
     function alterarEstado(id, novoEstado, botaoElemento) {
@@ -263,15 +264,18 @@
         .then(() => {
             estaAProcessar = false;
             if (novoEstado === "Aguardando_Pagamento" || novoEstado === "Pago") {
-                esconderChat(); // Remove chat se a viagem for concluída ou paga
+                esconderChat();
             }
-            carregarPedidos();
+            carregarPedidos(); // Atualiza a UI imediatamente após o sucesso
         })
         .catch(error => {
             console.error("Erro ao alterar o estado:", error);
-            alert("Não foi possível atualizar o estado.");
+            alert("Não foi possível atualizar o estado do pedido.");
             estaAProcessar = false;
-            if (botaoElemento) botaoElemento.disabled = false;
+            if (botaoElemento) {
+                botaoElemento.disabled = false;
+                botaoElemento.innerText = "Tentar novamente";
+            }
         });
     }
 
@@ -282,11 +286,9 @@
         const chatBox = document.getElementById('chat-express');
         const badgeId = document.getElementById('chat-pedido-id');
         
-        // Garante que o painel de chat fica visível
         chatBox.style.display = 'flex';
         badgeId.innerText = `ID Viagem: #${idPedido}`;
         
-        // Regista o motorista na sala específica daquela viagem se o socket estiver ligado
         if (socket && socket.connected) {
             socket.emit('entrar_chat', { pedidoId: idPedido, utilizador: 'motorista' });
         }
@@ -308,16 +310,14 @@
         const mensagem = input.value.trim();
 
         if (mensagem && idViagemAtiva && socket) {
-            // Envia a mensagem via socket para o passageiro
             socket.emit('enviar_mensagem', {
                 pedidoId: idViagemAtiva,
-                texto: mensagem,
+                texto: message = mensagem,
                 remetente: 'motorista'
             });
 
-            // Adiciona localmente no ecrã do motorista
             adicionarMensagemAoEcrã(mensagem, 'minha');
-            input.value = ''; // Limpa o input
+            input.value = '';
         }
     }
 
@@ -329,12 +329,10 @@
         balao.innerText = texto;
         
         box.appendChild(balao);
-        
-        // Faz scroll automático para acompanhar a conversa
         box.scrollTop = box.scrollHeight;
     }
 
-    // Execução Inicial e Polling silencioso
+    // Execução Inicial e Polling de 4 segundos
     carregarPedidos();
     setInterval(carregarPedidos, 4000); 
     </script>
