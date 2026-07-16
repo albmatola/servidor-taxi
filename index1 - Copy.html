@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TaxiExpress - Chame sem instalar</title>
+    <!-- Leaflet CSS para o Mapa -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            margin: 0; 
+            padding: 0; 
+            display: flex; 
+            flex-direction: column; 
+            height: 100vh; 
+            background-color: #f4f4f9;
+        }
+        #map { 
+            flex-grow: 1; 
+            width: 100%; 
+        }
+        .booking-panel { 
+            padding: 20px; 
+            background: white; 
+            box-shadow: 0 -3px 10px rgba(0,0,0,0.2); 
+            border-radius: 16px 16px 0 0; 
+            z-index: 1000; 
+        }
+        .btn { 
+            background: #ffcc00; 
+            border: none; 
+            padding: 15px; 
+            width: 100%; 
+            font-size: 16px; 
+            font-weight: bold; 
+            border-radius: 8px; 
+            cursor: pointer; 
+            transition: background 0.2s;
+        }
+        .btn:hover {
+            background: #e6b800;
+        }
+        .input-group { 
+            margin-bottom: 15px; 
+        }
+        .input-group input { 
+            width: 100%; 
+            padding: 12px; 
+            box-sizing: border-box; 
+            border: 1px solid #ccc; 
+            border-radius: 8px; 
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Onde o mapa vai ser renderizado -->
+    <div id="map"></div>
+
+    <!-- Painel de pedido inferior -->
+    <div class="booking-panel">
+        <h3 style="margin-top: 0;">Pedir Táxi Agora 🚖</h3>
+        <div class="input-group">
+            <input type="tel" id="phone" placeholder="Telemóvel (para o motorista ligar)" required>
+        </div>
+        <div class="input-group">
+            <input type="text" id="destination" placeholder="Para onde vai?">
+        </div>
+        <button class="btn" onclick="solicitarTaxi()">Solicitar Táxi Temporário</button>
+    </div>
+
+    <!-- Leaflet JS para renderizar o mapa -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        // Inicializa o mapa (focado por padrão em Maputo, Moçambique)
+        const map = L.map('map').setView([-25.9692, 32.5732], 13);
+        
+        // Carrega os blocos de mapa gratuitos do OpenStreetMap
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap'
+        }).addTo(map);
+
+        let userMarker;
+
+        // Captura a localização real do utilizador através do browser
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(position => {
+                const lat = position.coords.latitude;
+                const lon = position.coords.longitude;
+                
+                // Move o mapa para a localização real do utilizador
+                map.setView([lat, lon], 16);
+                
+                // Adiciona um marcador no mapa
+                userMarker = L.marker([lat, lon]).addTo(map)
+                    .bindPopup("Estás aqui! 📍")
+                    .openPopup();
+            }, () => {
+                alert("Para te localizarmos sem digitares o endereço, por favor ativa a localização no teu navegador.");
+            });
+        }
+
+function solicitarTaxi() {
+    const phone = document.getElementById('phone').value;
+    const dest = document.getElementById('destination').value;
+    
+    if (!phone) {
+        alert("Por favor, introduz o teu número de telefone.");
+        return;
+    }
+
+    // Criamos o objeto com os dados para enviar ao servidor
+    const dadosPedido = {
+        telefone: phone,
+        destino: dest,
+        latitude: latitudeAtual,
+        longitude: longitudeAtual
+    };
+
+    // Fazemos a chamada HTTP POST para o nosso servidor Node.js
+    fetch('/api/pedir', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(dadosPedido)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.pedidoId) {
+            alert(`Sucesso! O teu pedido #${data.pedidoId} foi enviado para o servidor.`);
+        } else {
+            alert("Erro ao enviar pedido.");
+        }
+    })
+    .catch(error => {
+        console.error("Erro na comunicação:", error);
+        alert("Não foi possível conectar ao servidor.");
+    });
+}
+            
+            alert(`A enviar pedido para os motoristas próximos...\nContacto: ${phone}\nDestino: ${dest || 'Não especificado'}`);
+        }
+<!-- Leaflet JS para renderizar o mapa -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        // Inicializa o mapa focado em Maputo
+        const map = L.map('map').setView([-25.9692, 32.5732], 13);
+
+        // Carrega os blocos de mapa gratuitos do OpenStreetMap
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap'
+        }).addTo(map);
+
+        let userMarker;
+        let latitudeAtual = -25.9692;
+        let longitudeAtual = 32.5732;
+
+        // Função para definir ou mover o marcador
+        function definirLocalizacao(lat, lon) {
+            latitudeAtual = lat;
+            longitudeAtual = lon;
+            
+            if (userMarker) {
+                userMarker.setLatLng([lat, lon]);
+            } else {
+                userMarker = L.marker([lat, lon]).addTo(map)
+                    .bindPopup("Estás aqui! 📍")
+                    .openPopup();
+            }
+            map.setView([lat, lon], 16);
+        }
+
+        // 1. Tentar geolocalização automática do browser
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(position => {
+                definirLocalizacao(position.coords.latitude, position.coords.longitude);
+            }, () => {
+                console.log("Geolocalização automática negada ou indisponível. Usa o clique manual.");
+            });
+        }
+
+        // 2. Permitir definir localização clicando no mapa
+        map.on('click', function(e) {
+            definirLocalizacao(e.latlng.lat, e.latlng.lng);
+        });
+
+        // 3. Enviar o pedido para o servidor via API
+        function solicitarTaxi() {
+            const phone = document.getElementById('phone').value;
+            const dest = document.getElementById('destination').value;
+            
+            if (!phone) {
+                alert("Por favor, introduz o teu número de telefone.");
+                return;
+            }
+
+            const dadosPedido = {
+                telefone: phone,
+                destino: dest,
+                latitude: latitudeAtual,
+                longitude: longitudeAtual
+            };
+
+            fetch('/api/pedir', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(dadosPedido)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.pedidoId) {
+                    alert(`Sucesso! O teu pedido #${data.pedidoId} foi enviado para o servidor.`);
+                } else {
+                    alert("Erro ao enviar pedido.");
+                }
+            })
+            .catch(error => {
+                console.error("Erro na comunicação:", error);
+                alert("Não foi possível conectar ao servidor.");
+            });
+        }
+    </script>
+</body>
+</html>

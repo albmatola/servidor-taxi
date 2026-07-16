@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel do Motorista - TaxiExpress</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f4f4f9;
+        }
+        h1 {
+            color: #333;
+        }
+        .pedido-card {
+            background: white;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            border-left: 5px solid #ffcc00;
+        }
+        .btn-aceitar {
+            background-color: #28a745;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 5px;
+            font-weight: bold;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            margin-top: 10px;
+        }
+        .btn-aceitar:hover {
+            background-color: #218838;
+        }
+        .no-pedidos {
+            color: #777;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Painel de Pedidos Recentes (Motorista) 🚖</h1>
+    <p>Os novos pedidos de clientes sem aplicação aparecem aqui em tempo real.</p>
+    
+    <button onclick="carregarPedidos()" style="padding: 10px; margin-bottom: 20px; cursor: pointer;">
+        🔄 Atualizar Lista
+    </button>
+
+    <div id="lista-pedidos">
+        <p class="no-pedidos">A carregar pedidos do servidor...</p>
+    </div>
+
+    <script>
+        function carregarPedidos() {
+            // Fazemos um pedido GET ao servidor para buscar a lista de solicitações
+            fetch('/api/pedidos')
+                .then(response => response.json())
+                .then(pedidos => {
+                    const container = document.getElementById('lista-pedidos');
+                    container.innerHTML = ''; // Limpar a lista atual
+
+                    if (pedidos.length === 0) {
+                        container.innerHTML = '<p class="no-pedidos">Nenhum pedido de táxi pendente de momento.</p>';
+                        return;
+                    }
+
+                    // Criar um "card" visual para cada pedido recebido
+                    pedidos.forEach(pedido => {
+                        const card = document.createElement('div');
+                        card.className = 'pedido-card';
+                        
+                        // Link direto para abrir o Google Maps na localização exata que o cliente clicou
+                        const gpsLink = `https://www.google.com/maps/search/?api=1&query=${pedido.latitude},${pedido.longitude}`;
+
+                        card.innerHTML = `
+                            <h3>Pedido #${pedido.id}</h3>
+                            <p><strong>📞 Contacto do Cliente:</strong> ${pedido.telefone}</p>
+                            <p><strong>📍 Destino:</strong> ${pedido.destino}</p>
+                            <p><strong>🌍 Coordenadas:</strong> Lat ${pedido.latitude.toFixed(5)}, Lon ${pedido.longitude.toFixed(5)}</p>
+                            <a href="${gpsLink}" target="_blank" class="btn-aceitar">
+                                Aceitar e Navegar no GPS 🧭
+                            </a>
+                        `;
+                        container.appendChild(card);
+                    });
+                })
+                .catch(error => {
+                    console.error("Erro ao carregar pedidos:", error);
+                });
+        }
+
+        // Carrega a lista automaticamente assim que a página abre
+        carregarPedidos();
+        // Atualiza a lista a cada 10 segundos automaticamente
+        setInterval(carregarPedidos, 10000);
+    </script>
+</body>
+</html>
