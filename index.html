@@ -14,9 +14,12 @@
         label { font-weight: bold; display: block; margin-top: 10px; }
         input { width: 100%; padding: 10px; margin-top: 5px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 5px; font-size: 16px; }
         
+        /* Contentor para garantir que o dropdown de sugestões alinhe perfeitamente com o Input */
+        .busca-container { position: relative; width: 100%; }
+
         /* Estilos do Mapa e sugestões */
         #mapa { height: 250px; width: 100%; margin-top: 15px; border-radius: 8px; border: 1px solid #ddd; }
-        .sugestoes-box { background: white; border: 1px solid #ccc; max-height: 150px; overflow-y: auto; position: absolute; width: calc(100% - 80px); max-width: 420px; z-index: 1000; border-radius: 0 0 5px 5px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .sugestoes-box { background: white; border: 1px solid #ccc; max-height: 150px; overflow-y: auto; position: absolute; width: 100%; z-index: 1000; border-radius: 0 0 5px 5px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); box-sizing: border-box; }
         .sugestao-item { padding: 10px; cursor: pointer; border-bottom: 1px solid #eee; font-size: 14px; }
         .sugestao-item:hover { background-color: #f0f0f0; }
 
@@ -29,6 +32,66 @@
         /* Botão estilizado para autorizar o pagamento */
         .btn-pagar { background-color: #28a745; color: white; border: none; padding: 10px 15px; font-size: 16px; font-weight: bold; border-radius: 5px; cursor: pointer; margin-top: 12px; width: 100%; transition: background 0.2s; }
         .btn-pagar:hover { background-color: #218838; }
+
+        /* ==========================================
+           💬 ESTILOS DO CHAT INTEGRADO (NOVO)
+        ========================================== */
+        .chat-container {
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            background: white;
+            margin-top: 15px;
+            display: none; /* Só abre quando o motorista aceita a corrida */
+            flex-direction: column;
+            height: 250px;
+        }
+        .chat-mensagens {
+            flex: 1;
+            padding: 10px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .balao-msg {
+            max-width: 80%;
+            padding: 8px 12px;
+            border-radius: 15px;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+        .minha-msg {
+            background-color: #007bff;
+            color: white;
+            align-self: flex-end;
+            border-bottom-right-radius: 2px;
+        }
+        .outra-msg {
+            background-color: #f1f0f0;
+            color: #333;
+            align-self: flex-start;
+            border-bottom-left-radius: 2px;
+        }
+        .chat-input-area {
+            display: flex;
+            border-top: 1px solid #ddd;
+            padding: 5px;
+        }
+        .chat-input-area input {
+            flex: 1;
+            border: none;
+            padding: 8px;
+            font-size: 14px;
+            margin-top: 0;
+        }
+        .chat-input-area input:focus { outline: none; }
+        .btn-enviar {
+            background: none;
+            border: none;
+            font-size: 20px;
+            cursor: pointer;
+            padding: 0 10px;
+        }
     </style>
 </head>
 <body>
@@ -39,12 +102,14 @@
 
     <!-- Campo do Número -->
     <label for="telefone">Teu Número de Telemóvel:</label>
-    <input type="tel" id="telefone" placeholder="Ex: 831234567" required maxlength="9">
+    <input type="tel" id="telefone" placeholder="Ex: 841234567" required maxlength="9">
 
     <!-- Campo do Destino com Busca Ativa -->
     <label for="destino">Para onde vais?</label>
-    <input type="text" id="destino" placeholder="Digita o local de destino in Maputo..." oninput="buscarDestinos(this.value)" autocomplete="off">
-    <div id="sugestoes" class="sugestoes-box" style="display: none;"></div>
+    <div class="busca-container">
+        <input type="text" id="destino" placeholder="Digita o local de destino em Maputo..." oninput="buscarDestinos(this.value)" autocomplete="off">
+        <div id="sugestoes" class="sugestoes-box" style="display: none;"></div>
+    </div>
 
     <!-- O Mapa Interativo -->
     <div id="mapa"></div>
@@ -60,12 +125,42 @@
 
     <!-- Caixa de Estado do Pedido -->
     <div id="status-container" class="status-box"></div>
+
+    <!-- Interface Dinâmica do Chat (NOVO) -->
+    <div class="chat-container" id="chat-passageiro">
+        <div style="background: #007bff; color: white; padding: 10px; font-weight: bold; border-radius: 8px 8px 0 0; font-size: 14px;">
+            💬 Conversa com o Motorista
+        </div>
+        <div class="chat-mensagens" id="mensagens-box"></div>
+        <div class="chat-input-area">
+            <input type="text" id="chat-input" placeholder="Escreve ao motorista..." onkeypress="verificarEnter(event)">
+            <button class="btn-enviar" onclick="enviarMensagemChat()">✈️</button>
+        </div>
+    </div>
 </div>
 
 <!-- Scripts do Leaflet para o Mapa -->
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
+<!-- 1. Carrega o Socket.io de forma nativa a partir do servidor (NOVO) -->
+<script src="/socket.io/socket.io.js"></script>
+
 <script>
+    // Inicialização da ligação WebSockets com tratamento de segurança
+    let socket;
+    try {
+        socket = io();
+        
+        // Ouvir mensagens enviadas pelo motorista
+        socket.on('mensagem_recebida', (dados) => {
+            if (idPedidoAtivo && dados.pedidoId === idPedidoAtivo) {
+                adicionarMensagemAoEcrã(dados.texto, 'outra');
+            }
+        });
+    } catch(e) {
+        console.warn("Socket.io não disponível ou offline.", e);
+    }
+
     // Configurações de Tarifas de Maputo 🇲🇿
     const TARIFA_BASE = 150; // Taxa de partida (MT)
     const PRECO_POR_KM = 50;  // Valor por quilómetro (MT)
@@ -81,17 +176,22 @@
     let lonDestino = null;
     let distanciaFinalKm = 0;
     let tarifaFinalMt = 0;
+    
+    let idPedidoAtivo = null; // Guarda o ID da viagem em curso para o Chat
 
     // 1. Inicializar o Mapa focado em Maputo
     function inicializarMapa() {
+        if (typeof L === 'undefined') {
+            setTimeout(inicializarMapa, 100);
+            return;
+        }
+
         mapa = L.map('mapa').setView([latUsuario, lonUsuario], 13);
 
-        // Adicionar o design do mapa do OpenStreetMap
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '© OpenStreetMap contributors'
         }).addTo(mapa);
 
-        // Tentar obter a localização real do telemóvel do utilizador
         if (navigator.geolocation) {
             navigator.geolocation.getCurrentPosition(pos => {
                 latUsuario = pos.coords.latitude;
@@ -118,7 +218,6 @@
             .bindPopup("Maputo (Centro) 📍").openPopup();
     }
 
-    // Validação de prefixos de Moçambique (82, 83, 84, 85, 86, 87)
     function validarTelefoneMoçambique(telefone) {
         const regex = /^(82|83|84|85|86|87)\d{7}$/;
         return regex.test(telefone);
@@ -135,7 +234,6 @@
             return;
         }
 
-        // Aguarda o utilizador parar de digitar para não sobrecarregar a rede
         timeoutBusca = setTimeout(() => {
             const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(texto)}+Maputo&limit=4`;
 
@@ -171,7 +269,6 @@
         document.getElementById('destino').value = nome;
         document.getElementById('sugestoes').style.display = 'none';
 
-        // Estilização alternativa para destacar o destino em vermelho
         const redIcon = L.icon({
             iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
             shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.3.1/images/marker-shadow.png',
@@ -181,7 +278,6 @@
             shadowSize: [41, 41]
         });
 
-        // Atualizar ou criar o marcador do destino no mapa
         if (marcadorDestino) {
             marcadorDestino.setLatLng([latDestino, lonDestino]);
         } else {
@@ -189,25 +285,22 @@
         }
         marcadorDestino.bindPopup("Destino Selecionado 🏁").openPopup();
 
-        // Desenhar uma linha simples entre a origem e o destino
         if (rotaLinha) {
             rotaLinha.setLatLngs([[latUsuario, lonUsuario], [latDestino, lonDestino]]);
         } else {
             rotaLinha = L.polyline([[latUsuario, lonUsuario], [latDestino, lonDestino]], { color: 'orange', weight: 4 }).addTo(mapa);
         }
 
-        // Focar o mapa para mostrar ambos os pontos
         const grupo = new L.featureGroup([marcadorUsuario, marcadorDestino]);
         mapa.fitBounds(grupo.getBounds().pad(0.2));
 
         calcularTarifaReal();
     }
 
-    // 4. Calcular distância real usando a fórmula de Haversine e definir tarifa
     function calcularTarifaReal() {
         if (!latDestino) return;
 
-        const R = 6371; // Raio da terra
+        const R = 6371;
         const dLat = (latDestino - latUsuario) * Math.PI / 180;
         const dLon = (lonDestino - lonUsuario) * Math.PI / 180;
         const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
@@ -216,13 +309,10 @@
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
         distanciaFinalKm = R * c;
 
-        // Se a distância for muito curta, arredondamos para 0.5km
         if (distanciaFinalKm < 0.5) distanciaFinalKm = 0.5;
 
-        // Calcular Tarifa: Base + (Km * Preço por Km)
         tarifaFinalMt = Math.round(TARIFA_BASE + (distanciaFinalKm * PRECO_POR_KM));
 
-        // Mostrar no ecrã
         document.getElementById('distancia-texto').innerText = distanciaFinalKm.toFixed(1);
         document.getElementById('tarifa-texto').innerText = tarifaFinalMt;
         document.getElementById('info-viagem').style.display = 'block';
@@ -236,7 +326,7 @@
         const destino = document.getElementById('destino').value;
 
         if (!telefone || !validarTelefoneMoçambique(telefone)) {
-            alert("Por favor, introduz um número de telemóvel moçambicano válido (Ex: 831234567, 9 dígitos).");
+            alert("Por favor, introduz um número de telemóvel moçambicano válido (Ex: 841234567, de 9 dígitos).");
             return;
         }
 
@@ -266,7 +356,14 @@
             return res.json();
         })
         .then(pedidoCriado => {
-            iniciarMonitorizacaoPedido(pedidoCriado.id);
+            idPedidoAtivo = pedidoCriado.id;
+            
+            // Regista-se na sala de chat específica do pedido via socket
+            if (socket) {
+                socket.emit('entrar_chat', { pedidoId: idPedidoAtivo, utilizador: 'passageiro' });
+            }
+
+            iniciarMonitorizacaoPedido(idPedidoAtivo);
         })
         .catch(err => {
             alert("Erro ao chamar táxi: " + err.message);
@@ -293,33 +390,38 @@
                         statusBox.style.backgroundColor = "#ffeeba";
                         statusBox.style.color = "#856404";
                         statusBox.innerText = "🔎 À procura de um motorista por perto...";
+                        esconderChat();
                     } 
                     else if (pedido.estado === "Aceite") {
                         statusBox.style.backgroundColor = "#cce5ff";
                         statusBox.style.color = "#004085";
                         statusBox.innerText = "🚖 O motorista aceitou o teu pedido e está a caminho!";
+                        mostrarChat(); // Mostra o chat em tempo real com o motorista
                     } 
                     else if (pedido.estado === "Em Viagem") {
                         statusBox.style.backgroundColor = "#ffe8d6";
                         statusBox.style.color = "#a04000";
                         statusBox.innerText = "🗺️ Estás em viagem! Aproveita o percurso.";
+                        mostrarChat();
                     } 
                     else if (pedido.estado === "Aguardando_Pagamento") {
                         statusBox.style.backgroundColor = "#f8d7da";
                         statusBox.style.color = "#721c24";
-                        // Chamamos a função solicitarPin(...) ao clicar no botão
                         statusBox.innerHTML = `
                             💸 Viagem Terminada! <br>
                             Por favor, confirma o pagamento de <strong>${pedido.tarifa} MT</strong> enviado para o teu telemóvel via <strong>${operadora}</strong>.<br>
                             <button class="btn-pagar" onclick="solicitarPin('${pedido.id}', '${operadora}')">Autorizar Débito (Inserir PIN) ✅</button>
                         `;
+                        esconderChat(); // Esconde o chat na fase de pagamento para focar na transação
                     } 
                     else if (pedido.estado === "Pago") {
                         statusBox.style.backgroundColor = "#d4edda";
                         statusBox.style.color = "#155724";
                         statusBox.innerHTML = `🎉 Pago com Sucesso via ${operadora}! Obrigado por viajares com o TaxiExpress!`;
+                        esconderChat();
                         clearInterval(checkStatusInterval);
                         document.getElementById('btn-chamar').disabled = false;
+                        idPedidoAtivo = null;
                     }
                 })
                 .catch(err => {
@@ -328,20 +430,62 @@
         }, 3000);
     }
 
+    // ==========================================
+    // ⚙️ FUNÇÕES DO CHAT DE CONVERSA (NOVO)
+    // ==========================================
+    function mostrarChat() {
+        document.getElementById('chat-passageiro').style.display = 'flex';
+    }
+
+    function esconderChat() {
+        document.getElementById('chat-passageiro').style.display = 'none';
+    }
+
+    function verificarEnter(event) {
+        if (event.key === 'Enter') {
+            enviarMensagemChat();
+        }
+    }
+
+    function enviarMensagemChat() {
+        const input = document.getElementById('chat-input');
+        const mensagem = input.value.trim();
+
+        if (mensagem && idPedidoAtivo && socket) {
+            // Envia a mensagem via socket
+            socket.emit('enviar_mensagem', {
+                pedidoId: idPedidoAtivo,
+                texto: mensagem,
+                remetente: 'passageiro'
+            });
+
+            adicionarMensagemAoEcrã(mensagem, 'minha');
+            input.value = '';
+        }
+    }
+
+    function adicionarMensagemAoEcrã(texto, tipo) {
+        const box = document.getElementById('mensagens-box');
+        const balao = document.createElement('div');
+        
+        balao.className = `balao-msg ${tipo === 'minha' ? 'minha-msg' : 'outra-msg'}`;
+        balao.innerText = texto;
+        
+        box.appendChild(balao);
+        box.scrollTop = box.scrollHeight; // Mantém o scroll no fundo
+    }
+
     // Pergunta o PIN ao utilizador antes de enviar o sinal ao servidor
     function solicitarPin(id, operadora) {
         const pinDigitado = prompt(`[${operadora}] Introduz o teu PIN de 4 dígitos para autorizar o pagamento:`);
         
-        // Se o utilizador clicar em cancelar ou fechar a caixa
         if (pinDigitado === null) return; 
 
-        // Pequena validação para garantir que colocou números
         if (pinDigitado.length < 4 || isNaN(pinDigitado)) {
             alert("Erro: O PIN deve conter pelo menos 4 números.");
             return;
         }
 
-        // Se o PIN for válido, enviamos o sinal juntamente com o PIN
         simularPagamento(id, pinDigitado);
     }
 
@@ -350,7 +494,7 @@
         fetch(`/api/pedido/${id}/pagar`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ pin: pin }) // Envia o PIN no corpo (Body) da requisição
+            body: JSON.stringify({ pin: pin })
         })
         .then(res => {
             if (!res.ok) throw new Error("Erro ao processar o pagamento.");
@@ -373,7 +517,6 @@
         return "Carteira Móvel";
     }
 
-    // Inicializar o mapa ao abrir a página
     window.onload = inicializarMapa;
 </script>
 </body>

@@ -1,6 +1,12 @@
 const express = require('express');
 const path = require('path');
+const http = require('http'); // 👈 Importado para acoplar o Socket.io ao Express
+const { Server } = require('socket.io'); // 👈 Importado para o tempo real
+
 const app = express();
+const server = http.createServer(app); // 👈 Criamos o servidor HTTP usando o Express
+const io = new Server(server); // 👈 Inicializamos o Socket.io neste servidor
+
 const PORT = process.env.PORT || 3000;
 
 // Configuração dos Parsers para ler JSON e dados de formulários
@@ -90,36 +96,79 @@ app.post('/api/pedido/:id/estado', (req, res) => {
         pedido.pagamentoStatus = "Processando";
     }
 
+    // 📢 Avisa o Passageiro em tempo real que o motorista alterou o estado da viagem
+    io.to(`viagem_${idPedido}`).emit('estado_alterado', { novoEstado, pedido });
+
     console.log(`Pedido #${pedido.id} alterado pelo motorista para: ${novoEstado}`);
-    res.json({ mensagem: "Estado atualizado com sucesso!", pedido });
+    res.json({ mensagem: "Estado updated com sucesso!", pedido });
 });
 
 // ROTA 5: Simular confirmação de pagamento via PIN M-Pesa/e-Mola/mKesh pelo Cliente (POST)
 app.post('/api/pedido/:id/pagar', (req, res) => {
     const idPedido = parseInt(req.params.id);
-    const { pin } = req.body; // PIN opcional para testes ou simulações diretas
+    const { pin } = req.body; 
     
     const pedido = pedidos.find(p => p.id === idPedido);
     if (!pedido) {
         return res.status(404).json({ erro: "Pedido não encontrado." });
     }
 
-    // Se um PIN for enviado, validamos (pelo menos 4 dígitos para segurança)
-    // Se não for enviado (clique direto no botão simular), geramos um PIN simulado de autorização
-    if (pin && pin.length < 4) {
-        return res.status(400).json({ erro: "PIN inválido. Introduz pelo menos 4 dígitos." });
+    // Tratamento robusto para garantir que o PIN é uma string antes de validar o comprimento
+    const pinString = pin ? String(pin).trim() : "";
+
+    if (pinString && (pinString.length < 4 || isNaN(pinString))) {
+        return res.status(400).json({ erro: "PIN inválido. Introduz pelo menos 4 números." });
     }
 
+    // Altera o estado do pedido e do pagamento de forma síncrona na memória
     pedido.estado = "Pago";
     pedido.pagamentoStatus = "Pago";
 
-    console.log(`💳 PAGAMENTO CONFIRMADO! Pedido #${pedido.id} de ${pedido.tarifa} MT pago via Mobile Money.`);
+    // 📢 Avisa o Motorista em tempo real na sala de chat que o pagamento foi efetuado com sucesso!
+    io.to(`viagem_${idPedido}`).emit('pagamento_confirmado', { pedido });
+
+    console.log(`💳 [PAGAMENTO CONFIRMADO] Pedido #${pedido.id} de ${pedido.tarifa} MT pago via Mobile Money (PIN validado).`);
     res.json({ mensagem: "Pagamento processado com sucesso!", pedido });
 });
 
 // ==========================================
-// 🚀 INICIALIZAÇÃO DO SERVIDOR
+// 💬 SISTEMA DE SOCKET.IO (CHAT EM TEMPO REAL)
 // ==========================================
-app.listen(PORT, () => {
+io.on('connection', (socket) => {
+    console.log(`Dispositivo conectado ao WebSocket 🔌 (ID: ${socket.id})`);
+
+    // 1. Entrar na sala dedicada da viagem (junta o passageiro e o motorista na mesma sala)
+    socket.on('entrar_chat', (dados) => {
+        const { pedidoId, utilizador } = dados;
+        const sala = `viagem_${pedidoId}`;
+        
+        socket.join(sala);
+        console.log(`[CHAT] O ${utilizador} entrou na sala ${sala}`);
+    });
+
+    // 2. Receber e reencaminhar mensagens de chat
+    socket.on('enviar_mensagem', (dados) => {
+        const { pedidoId, texto, remetente } = dados;
+        const sala = `viagem_${pedidoId}`;
+
+        // Envia a mensagem para todos os outros integrantes da sala específica
+        socket.to(sala).emit('mensagem_recebida', {
+            pedidoId,
+            texto,
+            remetente
+        });
+        
+        console.log(`[MENSAGEM] Sala ${sala} - ${remetente}: "${texto}"`);
+    });
+
+    socket.on('disconnect', () => {
+        console.log(`Dispositivo desconectado do WebSocket ❌`);
+    });
+});
+
+// ==========================================
+// 🚀 INICIALIZAÇÃO DO SERVIDOR (com "server" em vez de "app")
+// ==========================================
+server.listen(PORT, () => {
     console.log(`Servidor de Táxi do TaxiExpress a rodar na porta ${PORT} 🚀`);
 });

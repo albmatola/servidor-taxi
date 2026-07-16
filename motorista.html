@@ -7,8 +7,9 @@
     <style>
         body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f4f4f9; }
         h1 { color: #333; }
-        .pedido-card { background: white; padding: 15px; margin-bottom: 15px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border-left: 5px solid #ffcc00; }
+        .pedido-card { background: white; padding: 15px; margin-bottom: 15px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border-left: 5px solid #ffcc00; transition: all 0.3s ease; }
         .btn { border: none; padding: 10px 15px; border-radius: 5px; font-weight: bold; cursor: pointer; display: inline-block; margin-top: 10px; margin-right: 5px; text-decoration: none; text-align: center; }
+        .btn:disabled { background-color: #cccccc !important; cursor: not-allowed; }
         .btn-gps { background-color: #007bff; color: white; }
         .btn-aceitar { background-color: #28a745; color: white; }
         .btn-viagem { background-color: #fd7e14; color: white; }
@@ -20,14 +21,76 @@
         .badge-viagem { background: #ffe8d6; color: #a04000; }
         .badge-pagamento { background: #f8d7da; color: #721c24; }
         .badge-pago { background: #d4edda; color: #155724; }
+
+        /* ==========================================
+           💬 ESTILOS DO CHAT INTEGRADO
+        ========================================== */
+        .chat-container {
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            background: white;
+            margin-top: 15px;
+            display: none; /* Começa escondido, aparece dinamicamente */
+            flex-direction: column;
+            height: 300px;
+        }
+        .chat-mensagens {
+            flex: 1;
+            padding: 10px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .balao-msg {
+            max-width: 80%;
+            padding: 8px 12px;
+            border-radius: 15px;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+        .minha-msg {
+            background-color: #ffcc00;
+            color: black;
+            align-self: flex-end;
+            border-bottom-right-radius: 2px;
+        }
+        .outra-msg {
+            background-color: #f1f0f0;
+            color: #333;
+            align-self: flex-start;
+            border-bottom-left-radius: 2px;
+        }
+        .chat-input-area {
+            display: flex;
+            border-top: 1px solid #ddd;
+            padding: 5px;
+        }
+        .chat-input-area input {
+            flex: 1;
+            border: none;
+            padding: 8px;
+            font-size: 14px;
+        }
+        .chat-input-area input:focus { outline: none; }
+        .btn-enviar {
+            background: none;
+            border: none;
+            font-size: 20px;
+            cursor: pointer;
+            padding: 0 10px;
+        }
     </style>
+
+    <!-- Importa o script do Socket.io -->
+    <script src="/socket.io/socket.io.js"></script>
 </head>
 <body>
 
     <h1>Painel de Pedidos Recentes (Motorista) 🚖</h1>
     <p>Gere viagens e simula cobranças diretas por <strong>M-Pesa, e-Mola ou mKesh</strong>.</p>
     
-    <button onclick="carregarPedidos()" style="padding: 10px; margin-bottom: 20px; cursor: pointer; font-weight: bold;">
+    <button id="btn-atualizar" onclick="carregarPedidos()" style="padding: 10px; margin-bottom: 20px; cursor: pointer; font-weight: bold;">
         🔄 Atualizar Lista de Chamadas
     </button>
 
@@ -35,111 +98,241 @@
         <p class="no-pedidos">A carregar pedidos do servidor...</p>
     </div>
 
+    <!-- Estrutura Única Global do Chat -->
+    <div class="chat-container" id="chat-express">
+        <div style="background: #333; color: white; padding: 10px; font-weight: bold; border-radius: 8px 8px 0 0; font-size: 14px; display: flex; justify-content: space-between;">
+            <span>💬 Conversa com o Passageiro</span>
+            <span id="chat-pedido-id" style="font-size: 12px; opacity: 0.8;"></span>
+        </div>
+        <div class="chat-mensagens" id="mensagens-box">
+            <!-- As mensagens vão aparecer aqui dinamicamente -->
+        </div>
+        <div class="chat-input-area">
+            <input type="text" id="chat-input" placeholder="Escreve uma mensagem rápida..." onkeypress="verificarEnter(event)">
+            <button class="btn-enviar" onclick="enviarMensagemChat()">✈️</button>
+        </div>
+    </div>
+
     <script>
-	// Função inteligente que suporta prefixos internacionais (Moçambique 🇲🇿 e Portugal 🇵🇹)
-	function obterCarteiraMovel(telefone) {
-    	if (!telefone) return "Método de Pagamento";
-    
-    	// Limpa espaços, traços, parêntesis e o símbolo + (para análise limpa)
-    	let numLimpo = telefone.replace(/[\s\-\(\)\+]/g, '');
+    // Inicializar o socket do lado do cliente
+    let socket;
+    try {
+        socket = io();
+        
+        // Ouvir mensagens que chegam do passageiro
+        socket.on('mensagem_recebida', (dados) => {
+            // Verifica se a mensagem recebida pertence à viagem que temos ativa no chat
+            if (idViagemAtiva && dados.pedidoId === idViagemAtiva) {
+                adicionarMensagemAoEcrã(dados.texto, 'outra');
+            }
+        });
+    } catch(e) {
+        console.warn("Socket.io não pôde ser inicializado. Garante que o servidor Node tem o Socket.io configurado.", e);
+    }
 
-    	// 1. VERIFICAÇÃO DE PORTUGAL (Prefixo 351)
-    	if (numLimpo.startsWith('351')) {
-        return "Simulador Multibanco / CC (PT 🇵🇹)";
-    	}
+    let idViagemAtiva = null; // Guarda o ID da viagem em curso para o Chat
+    let estaAProcessar = false;
 
-    	// 2. VERIFICAÇÃO DE MOÇAMBIQUE (Prefixo 258 ou Direto)
-    	// Se começar com o prefixo 258, removemos para analisar a operadora local
-    	if (numLimpo.startsWith('258')) {
-        numLimpo = numLimpo.substring(3);
-	}
+    // Função inteligente que suporta prefixos internacionais
+    function obterCarteiraMovel(telefone) {
+        if (!telefone) return "Método de Pagamento";
+        let numLimpo = telefone.replace(/[\s\-\(\)\+]/g, '');
 
-	// Analisa os primeiros dígitos do número local moçambicano
-    	const prefixoLocal = numLimpo.substring(0, 2);
-    	if (prefixoLocal === "82" || prefixoLocal === "83") return "mKesh 🇲🇿";
-    	if (prefixoLocal === "84" || prefixoLocal === "85") return "M-Pesa 🇲🇿";
-    	if (prefixoLocal === "86" || prefixoLocal === "87") return "e-Mola 🇲🇿";
+        if (numLimpo.startsWith('351')) {
+            return "Simulador Multibanco / CC (PT 🇵🇹)";
+        }
+        if (numLimpo.startsWith('258')) {
+            numLimpo = numLimpo.substring(3);
+        }
 
-    	// 3. CASO SEJA OUTRO PAÍS
-    	return "Pagamento Internacional 🌍";
-	}
+        const prefixoLocal = numLimpo.substring(0, 2);
+        if (prefixoLocal === "82" || prefixoLocal === "83") return "mKesh 🇲🇿";
+        if (prefixoLocal === "84" || prefixoLocal === "85") return "M-Pesa 🇲🇿";
+        if (prefixoLocal === "86" || prefixoLocal === "87") return "e-Mola 🇲🇿";
 
-        function carregarPedidos() {
-            fetch('/api/pedidos')
-                .then(response => response.json())
-                .then(pedidos => {
-                    const container = document.getElementById('lista-pedidos');
-                    container.innerHTML = '';
+        return "Pagamento Internacional 🌍";
+    }
 
-                    if (pedidos.length === 0) {
-                        container.innerHTML = '<p class="no-pedidos">Nenhum pedido de táxi de momento.</p>';
-                        return;
+    function carregarPedidos() {
+        if (estaAProcessar) return;
+
+        fetch('/api/pedidos')
+            .then(response => response.json())
+            .then(pedidos => {
+                const container = document.getElementById('lista-pedidos');
+                
+                if (pedidos.length === 0) {
+                    container.innerHTML = '<p class="no-pedidos">Nenhum pedido de táxi de momento.</p>';
+                    esconderChat();
+                    return;
+                }
+
+                const fragmento = document.createDocumentFragment();
+                let temViagemAtivaParaChat = false;
+                let idNovaViagemAtiva = null;
+
+                pedidos.forEach(pedido => {
+                    const card = document.createElement('div');
+                    card.className = 'pedido-card';
+                    
+                    const gpsLink = `https://www.google.com/maps/search/?api=1&query=${pedido.latitude},${pedido.longitude}`;
+                    const carteira = obterCarteiraMovel(pedido.telefone);
+                    
+                    let badgeClass = "badge-pendente";
+                    if (pedido.estado === "Aceite") badgeClass = "badge-aceite";
+                    if (pedido.estado === "Em Viagem") badgeClass = "badge-viagem";
+                    if (pedido.estado === "Aguardando_Pagamento") badgeClass = "badge-pagamento";
+                    if (pedido.estado === "Pago") badgeClass = "badge-pago";
+
+                    // Ativar chat apenas se o estado for "Aceite" ou "Em Viagem"
+                    if (pedido.estado === "Aceite" || pedido.estado === "Em Viagem") {
+                        temViagemAtivaParaChat = true;
+                        idNovaViagemAtiva = pedido.id;
                     }
 
-                    pedidos.forEach(pedido => {
-                        const card = document.createElement('div');
-                        card.className = 'pedido-card';
-                        
-                        const gpsLink = `https://www.google.com/maps/search/?api=1&query=${pedido.latitude},${pedido.longitude}`;
-                        const carteira = obterCarteiraMovel(pedido.telefone);
-                        
-                        // Determinar o estilo da etiqueta de estado
-                        let badgeClass = "badge-pendente";
-                        if (pedido.estado === "Aceite") badgeClass = "badge-aceite";
-                        if (pedido.estado === "Em Viagem") badgeClass = "badge-viagem";
-                        if (pedido.estado === "Aguardando_Pagamento") badgeClass = "badge-pagamento";
-                        if (pedido.estado === "Pago") badgeClass = "badge-pago";
-
-                        // Criar os botões de ação dinamicamente consoante o estado
-                        let botoesAcao = '';
-                        if (pedido.estado === "Pendente") {
-                            botoesAcao = `<button class="btn btn-aceitar" onclick="alterarEstado(${pedido.id}, 'Aceite')">Aceitar Serviço</button>`;
-                        } else if (pedido.estado === "Aceite") {
-                            botoesAcao = `
-                                <a href="${gpsLink}" target="_blank" class="btn btn-gps">Abrir GPS 🧭</a>
-                                <button class="btn btn-viagem" onclick="alterarEstado(${pedido.id}, 'Em Viagem')">Iniciar Viagem ▶️</button>
-                            `;
-                        } else if (pedido.estado === "Em Viagem") {
-                            botoesAcao = `<button class="btn btn-concluir" onclick="alterarEstado(${pedido.id}, 'Aguardando_Pagamento')">Concluir e Cobrar por Telemóvel 🏁</button>`;
-                        } else if (pedido.estado === "Aguardando_Pagamento") {
-                            botoesAcao = `<p style="color: #721c24; font-weight: bold; margin-top: 10px;">⌛ Aguardando que o cliente autorize o débito de ${pedido.tarifa} MT via ${carteira}...</p>`;
-                        } else if (pedido.estado === "Pago") {
-                            botoesAcao = `<p style="color: #155724; font-weight: bold; margin-top: 10px;">✅ Serviço Pago! Recebido: ${pedido.tarifa} MT via ${carteira}.</p>`;
-                        }
-
-                        card.innerHTML = `
-                            <div style="display: flex; justify-content: space-between; align-items: center;">
-                                <h3>Pedido #${pedido.id}</h3>
-                                <span class="status-badge ${badgeClass}">${pedido.estado}</span>
-                            </div>
-                            <p><strong>📞 Contacto do Cliente:</strong> ${pedido.telefone}</p>
-                            <p><strong>📍 Destino:</strong> ${pedido.destino}</p>
-                            <p><strong>💰 Tarifa Estimada:</strong> ${pedido.tarifa} MT</p>
-                            <div style="margin-top: 10px;">
-                                ${botoesAcao}
-                            </div>
+                    let botoesAcao = '';
+                    if (pedido.estado === "Pendente") {
+                        botoesAcao = `<button class="btn btn-aceitar" onclick="alterarEstado(${pedido.id}, 'Aceite', this)">Aceitar Serviço</button>`;
+                    } else if (pedido.estado === "Aceite") {
+                        botoesAcao = `
+                            <a href="${gpsLink}" target="_blank" class="btn btn-gps">Abrir GPS 🧭</a>
+                            <button class="btn btn-viagem" onclick="alterarEstado(${pedido.id}, 'Em Viagem', this)">Iniciar Viagem ▶️</button>
                         `;
-                        container.appendChild(card);
-                    });
-                })
-                .catch(error => console.error("Erro ao obter os pedidos:", error));
+                    } else if (pedido.estado === "Em Viagem") {
+                        botoesAcao = `<button class="btn btn-concluir" onclick="alterarEstado(${pedido.id}, 'Aguardando_Pagamento', this)">Concluir e Cobrar por Telemóvel 🏁</button>`;
+                    } else if (pedido.estado === "Aguardando_Pagamento") {
+                        botoesAcao = `<p style="color: #721c24; font-weight: bold; margin-top: 10px;">⌛ Aguardando que o cliente autorize o débito de ${pedido.tarifa} MT via ${carteira}...</p>`;
+                    } else if (pedido.estado === "Pago") {
+                        botoesAcao = `<p style="color: #155724; font-weight: bold; margin-top: 10px;">✅ Serviço Pago! Recebido: ${pedido.tarifa} MT via ${carteira}.</p>`;
+                    }
+
+                    card.innerHTML = `
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <h3>Pedido #${pedido.id}</h3>
+                            <span class="status-badge ${badgeClass}">${pedido.estado}</span>
+                        </div>
+                        <p><strong>📞 Contacto do Cliente:</strong> ${pedido.telefone}</p>
+                        <p><strong>📍 Destino:</strong> ${pedido.destino}</p>
+                        <p><strong>💰 Tarifa Estimada:</strong> ${pedido.tarifa} MT</p>
+                        <div style="margin-top: 10px;">
+                            ${botoesAcao}
+                        </div>
+                    `;
+                    fragmento.appendChild(card);
+                });
+
+                container.innerHTML = '';
+                container.appendChild(fragmento);
+
+                // Mostra ou esconde o chat com base no estado da viagem ativa
+                if (temViagemAtivaParaChat) {
+                    // Evita limpar o chat caso a viagem já esteja focada
+                    if (idViagemAtiva !== idNovaViagemAtiva) {
+                        idViagemAtiva = idNovaViagemAtiva;
+                        document.getElementById('mensagens-box').innerHTML = ''; // Limpa mensagens de viagens anteriores
+                        mostrarChat(idViagemAtiva);
+                    }
+                } else {
+                    esconderChat();
+                }
+            })
+            .catch(error => console.error("Erro ao obter os pedidos:", error));
+    }
+
+    function alterarEstado(id, novoEstado, botaoElemento) {
+        if (estaAProcessar) return;
+        
+        estaAProcessar = true;
+        if (botaoElemento) {
+            botaoElemento.disabled = true;
+            botaoElemento.innerText = "A carregar...";
         }
 
-        function alterarEstado(id, novoEstado) {
-            fetch(`/api/pedido/${id}/estado`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ novoEstado })
-            })
-            .then(res => res.json())
-            .then(() => {
-                carregarPedidos();
-            })
-            .catch(error => console.error("Erro ao alterar o estado:", error));
-        }
+        fetch(`/api/pedido/${id}/estado`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ novoEstado })
+        })
+        .then(res => {
+            if (!res.ok) throw new Error("Falha ao atualizar estado.");
+            return res.json();
+        })
+        .then(() => {
+            estaAProcessar = false;
+            if (novoEstado === "Aguardando_Pagamento" || novoEstado === "Pago") {
+                esconderChat(); // Remove chat se a viagem for concluída ou paga
+            }
+            carregarPedidos();
+        })
+        .catch(error => {
+            console.error("Erro ao alterar o estado:", error);
+            alert("Não foi possível atualizar o estado.");
+            estaAProcessar = false;
+            if (botaoElemento) botaoElemento.disabled = false;
+        });
+    }
 
-        carregarPedidos();
-        setInterval(carregarPedidos, 4000); // Atualiza de 4 em 4 segundos
+    // ==========================================
+    // ⚙️ FUNÇÕES DE CONTROLO DO CHAT
+    // ==========================================
+    function mostrarChat(idPedido) {
+        const chatBox = document.getElementById('chat-express');
+        const badgeId = document.getElementById('chat-pedido-id');
+        
+        chatBox.style.display = 'flex';
+        badgeId.innerText = `ID Viagem: #${idPedido}`;
+        
+        // Regista o motorista na sala específica daquela viagem
+        if (socket) {
+            socket.emit('entrar_chat', { pedidoId: idPedido, utilizador: 'motorista' });
+        }
+    }
+
+    function esconderChat() {
+        document.getElementById('chat-express').style.display = 'none';
+        idViagemAtiva = null;
+    }
+
+    function verificarEnter(event) {
+        if (event.key === 'Enter') {
+            enviarMensagemChat();
+        }
+    }
+
+    function enviarMensagemChat() {
+        const input = document.getElementById('chat-input');
+        const mensagem = input.value.trim();
+
+        if (mensagem && idViagemAtiva && socket) {
+            // Envia a mensagem via socket para o passageiro
+            socket.emit('enviar_mensagem', {
+                pedidoId: idViagemAtiva,
+                texto: message = mensagem,
+                remetente: 'motorista'
+            });
+
+            // Adiciona localmente no ecrã do motorista
+            adicionarMensagemAoEcrã(mensagem, 'minha');
+            input.value = ''; // Limpa o input
+        }
+    }
+
+    function adicionarMensagemAoEcrã(texto, tipo) {
+        const box = document.getElementById('mensagens-box');
+        const balao = document.createElement('div');
+        
+        balao.className = `balao-msg ${tipo === 'minha' ? 'minha-msg' : 'outra-msg'}`;
+        balao.innerText = texto;
+        
+        box.appendChild(balao);
+        
+        // Faz scroll automático para acompanhar a conversa
+        box.scrollTop = box.scrollHeight;
+    }
+
+    // Execução Inicial e Polling silencioso
+    carregarPedidos();
+    setInterval(carregarPedidos, 4000); 
     </script>
 </body>
 </html>
