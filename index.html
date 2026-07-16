@@ -3,227 +3,285 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TaxiExpress - Chame sem instalar</title>
-    <!-- Leaflet CSS para o Mapa -->
+    <title>TaxiExpress - Chamar Táxi</title>
+    <!-- CSS do Leaflet para o Mapa -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        body { 
-            font-family: Arial, sans-serif; 
-            margin: 0; 
-            padding: 0; 
-            display: flex; 
-            flex-direction: column; 
-            height: 100vh; 
-            background-color: #f4f4f9;
-        }
-        #map { 
-            flex-grow: 1; 
-            width: 100%; 
-        }
-        .booking-panel { 
-            padding: 20px; 
-            background: white; 
-            box-shadow: 0 -3px 10px rgba(0,0,0,0.2); 
-            border-radius: 16px 16px 0 0; 
-            z-index: 1000; 
-        }
-        .btn { 
-            background: #ffcc00; 
-            border: none; 
-            padding: 15px; 
-            width: 100%; 
-            font-size: 16px; 
-            font-weight: bold; 
-            border-radius: 8px; 
-            cursor: pointer; 
-            transition: background 0.2s;
-        }
-        .btn:hover {
-            background: #e6b800;
-        }
-        .input-group { 
-            margin-bottom: 15px; 
-        }
-        .input-group input { 
-            width: 100%; 
-            padding: 12px; 
-            box-sizing: border-box; 
-            border: 1px solid #ccc; 
-            border-radius: 8px; 
-            font-size: 14px;
-        }
+        body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f4f4f9; }
+        .container { max-width: 500px; margin: auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        h1 { text-align: center; color: #333; margin-bottom: 5px; }
+        p.subtitle { text-align: center; color: #666; margin-top: 0; margin-bottom: 20px; }
+        label { font-weight: bold; display: block; margin-top: 10px; }
+        input { width: 100%; padding: 10px; margin-top: 5px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 5px; font-size: 16px; }
+        
+        /* Estilos do Mapa e sugestões */
+        #mapa { height: 250px; width: 100%; margin-top: 15px; border-radius: 8px; border: 1px solid #ddd; }
+        .sugestoes-box { background: white; border: 1px solid #ccc; max-height: 150px; overflow-y: auto; position: absolute; width: calc(100% - 80px); max-width: 420px; z-index: 1000; border-radius: 0 0 5px 5px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .sugestao-item { padding: 10px; cursor: pointer; border-bottom: 1px solid #eee; font-size: 14px; }
+        .sugestao-item:hover { background-color: #f0f0f0; }
+
+        .btn { width: 100%; background-color: #ffcc00; border: none; padding: 12px; font-size: 18px; font-weight: bold; border-radius: 5px; cursor: pointer; margin-top: 15px; transition: 0.2s; }
+        .btn:hover { background-color: #e6b800; }
+        .info-viagem { background: #e9ecef; padding: 10px; border-radius: 5px; margin-top: 15px; font-size: 15px; }
+        .status-box { margin-top: 20px; padding: 15px; border-radius: 5px; text-align: center; font-weight: bold; display: none; }
     </style>
 </head>
 <body>
-    <div id="map"></div>
 
-    <div class="booking-panel" id="painel-principal">
-        <h3 style="margin-top: 0;">Pedir Táxi Agora 🚖</h3>
-        <div class="input-group">
-            <input type="tel" id="phone" placeholder="Telemóvel (ex: 841234567)" required>
-        </div>
-        <div class="input-group">
-            <input type="text" id="destination" placeholder="Para onde vai?">
-        </div>
-        <p style="margin: 5px 0 15px 0; font-size: 13px; color: #666;">
-            * Est. de Tarifa: <strong id="estimativa-valor">150 - 450 MT</strong> (mKesh/M-Pesa/e-Mola ou Dinheiro)
-        </p>
-        <button class="btn" onclick="solicitarTaxi()">Solicitar Táxi Temporário</button>
+<div class="container">
+    <h1>TaxiExpress 🚖</h1>
+    <p class="subtitle">Viagens rápidas com pagamento via M-Pesa, e-Mola ou mKesh</p>
+
+    <!-- Campo do Número -->
+    <label for="telefone">Teu Número de Telemóvel:</label>
+    <input type="tel" id="telefone" placeholder="Ex: 831234567" required>
+
+    <!-- Campo do Destino com Busca Ativa -->
+    <label for="destino">Para onde vais?</label>
+    <input type="text" id="destino" placeholder="Digita o local de destino em Maputo..." oninput="buscarDestinos(this.value)" autocomplete="off">
+    <div id="sugestoes" class="sugestoes-box" style="display: none;"></div>
+
+    <!-- O Mapa Interativo -->
+    <div id="mapa"></div>
+
+    <!-- Informações da Viagem Calculada -->
+    <div class="info-viagem" id="info-viagem" style="display: none;">
+        📍 <strong>Distância:</strong> <span id="distancia-texto">0.0</span> km<br>
+        💰 <strong>Tarifa Estimada:</strong> <span id="tarifa-texto">0</span> MT
     </div>
 
-    <!-- PAINEL DE MONITORIZAÇÃO E PAGAMENTO (SOBREPOSTO) -->
-    <div id="painel-status" style="display: none; position: fixed; bottom: 0; left: 0; right: 0; padding: 25px; background: white; border-radius: 16px 16px 0 0; box-shadow: 0 -3px 15px rgba(0,0,0,0.3); z-index: 2000; text-align: center;">
-        <h3 id="status-titulo">A procurar motorista... 🔍</h3>
-        <p id="status-descricao">O teu pedido foi enviado para a rede.</p>
-        <div id="area-pagamento" style="display: none; background: #f0f0f7; padding: 15px; border-radius: 8px; margin-top: 15px;">
-            <p style="margin-top: 0; font-weight: bold; color: #e60000;" id="operadora-texto">SMS PUSH mKesh / M-PESA / e-MOLA 📱</p>
-            <p>Introduza o seu PIN fictício para autorizar o pagamento de <strong id="pagamento-valor">0</strong> MT:</p>
-            <input type="password" id="pin-carteira" placeholder="PIN de 4 dígitos" style="padding: 10px; width: 60%; font-size: 16px; text-align: center; border-radius: 5px; border: 1px solid #ccc; margin-bottom: 10px;"><br>
-            <button onclick="confirmarPagamento()" style="background: #28a745; color: white; border: none; padding: 10px 20px; font-weight: bold; border-radius: 5px; cursor: pointer;">Confirmar e Pagar</button>
-        </div>
-    </div>
+    <!-- Botão de Solicitação -->
+    <button class="btn" id="btn-chamar" onclick="enviarPedido()">Chamar Táxi Agora 🚖</button>
 
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script>
-        const map = L.map('map').setView([-25.9692, 32.5732], 13);
+    <!-- Caixa de Estado do Pedido -->
+    <div id="status-container" class="status-box"></div>
+</div>
+
+<!-- Scripts do Leaflet para o Mapa -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+    // Configurações de Tarifas de Maputo 🇲🇿
+    const TARIFA_BASE = 150; // Taxa de partida (MT)
+    const PRECO_POR_KM = 100;  // Valor por quilómetro (MT)
+
+    let mapa;
+    let marcadorUsuario;
+    let marcadorDestino;
+    let rotaLinha;
+
+    let latUsuario = -25.9692; // Centro de Maputo por defeito
+    let lonUsuario = 32.5732;
+    let latDestino = null;
+    let lonDestino = null;
+    let distanciaFinalKm = 0;
+    let tarifaFinalMt = 0;
+
+    // 1. Inicializar o Mapa focado em Maputo
+    function inicializarMapa() {
+        mapa = L.map('mapa').setView([latUsuario, lonUsuario], 13);
+
+        // Adicionar o design do mapa do OpenStreetMap
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '© OpenStreetMap'
-        }).addTo(map);
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(mapa);
 
-        let userMarker;
-        let latitudeAtual = -25.9692;
-        let longitudeAtual = 32.5732;
-        let pedidoAtivoId = null;
-        let intervalVerificacao = null;
-
-        function definirLocalizacao(lat, lon) {
-            latitudeAtual = lat;
-            longitudeAtual = lon;
-            if (userMarker) {
-                userMarker.setLatLng([lat, lon]);
-            } else {
-                userMarker = L.marker([lat, lon]).addTo(map).bindPopup("Estás aqui! 📍").openPopup();
-            }
-            map.setView([lat, lon], 16);
-            
-            // Simular alteração do preço dependendo de onde clicas (distância ao centro de Maputo)
-            const dist = Math.sqrt(Math.pow(lat - (-25.9692), 2) + Math.pow(lon - (32.5732), 2)) * 100;
-            const estMin = Math.round(150 + (dist * 40));
-            const estMax = Math.round(150 + (dist * 60));
-            document.getElementById('estimativa-valor').innerText = `${estMin} - ${estMax} MT`;
-        }
-
+        // Tentar obter a localização real do telemóvel do utilizador
         if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(position => {
-                definirLocalizacao(position.coords.latitude, position.coords.longitude);
+            navigator.geolocation.getCurrentPosition(pos => {
+                latUsuario = pos.coords.latitude;
+                lonUsuario = pos.coords.longitude;
+                mapa.setView([latUsuario, lonUsuario], 15);
+
+                marcadorUsuario = L.marker([latUsuario, lonUsuario], {
+                    title: "Estás Aqui",
+                    draggable: false
+                }).addTo(mapa).bindPopup("Estás Aqui 📍").openPopup();
             });
+        } else {
+            // Caso falte GPS, coloca marcador padrão no centro
+            marcadorUsuario = L.marker([latUsuario, lonUsuario]).addTo(mapa);
+        }
+    }
+
+    // 2. Procurar locais em Maputo em tempo real (Nominatim API)
+    let timeoutBusca;
+    function buscarDestinos(texto) {
+        clearTimeout(timeoutBusca);
+        const sugestoesDiv = document.getElementById('sugestoes');
+
+        if (texto.length < 3) {
+            sugestoesDiv.style.display = 'none';
+            return;
         }
 
-        map.on('click', function(e) {
-            definirLocalizacao(e.latlng.lat, e.latlng.lng);
-        });
+        // Aguarda o utilizador parar de digitar para não sobrecarregar a rede
+        timeoutBusca = setTimeout(() => {
+            // Filtramos a busca para Maputo, Moçambique para resultados precisos
+            const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(texto)}+Maputo&limit=4`;
 
-        function solicitarTaxi() {
-            const phone = document.getElementById('phone').value;
-            const dest = document.getElementById('destination').value;
-            
-            if (!phone) {
-                alert("Por favor, introduz o teu número de telefone.");
-                return;
-            }
+            fetch(url)
+                .then(res => res.json())
+                .then(dados => {
+                    sugestoesDiv.innerHTML = '';
+                    if (dados.length === 0) {
+                        sugestoesDiv.style.display = 'none';
+                        return;
+                    }
 
-            // Distância simulada para cálculo de tarifa no servidor
-            const distSimulada = Math.random() * 4 + 1; 
+                    dados.forEach(local => {
+                        const div = document.createElement('div');
+                        div.className = 'sugestao-item';
+                        // Simplificar o nome para não ficar muito longo
+                        const nomeCurto = local.display_name.split(',').slice(0, 3).join(',');
+                        div.innerText = nomeCurto;
+                        div.onclick = () => selecionarDestino(local.lat, local.lon, nomeCurto);
+                        sugestoesDiv.appendChild(div);
+                    });
+                    sugestoesDiv.style.display = 'block';
+                });
+        }, 400);
+    }
 
-            fetch('/api/pedir', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    telefone: phone,
-                    destino: dest,
-                    latitude: latitudeAtual,
-                    longitude: longitudeAtual,
-                    distanciaEstimada: distSimulada
-                })
-            })
-            .then(res => res.json())
-            .then(data => {
-                if (data.pedidoId) {
-                    pedidoAtivoId = data.pedidoId;
-                    
-                    // Transiciona para o ecrã de espera
-                    document.getElementById('painel-principal').style.display = 'none';
-                    document.getElementById('painel-status').style.display = 'block';
-                    document.getElementById('status-titulo').innerText = "A procurar motorista... 🔍";
-                    document.getElementById('status-descricao').innerHTML = `Pedido #${data.pedidoId} enviado.<br>Tarifa Estimada: <strong>${data.tarifa} MT</strong>`;
-                    
-                    // Inicia verificação do estado a cada 3 segundos
-                    intervalVerificacao = setInterval(verificarEstadoCorrida, 3000);
-                }
-            });
+    // 3. Quando o passageiro clica numa sugestão do Auto-complete
+    function selecionarDestino(lat, lon, nome) {
+        latDestino = parseFloat(lat);
+        lonDestino = parseFloat(lon);
+        document.getElementById('destino').value = nome;
+        document.getElementById('sugestoes').style.display = 'none';
+
+        // Atualizar ou criar o marcador do destino no mapa
+        if (marcadorDestino) {
+            marcadorDestino.setLatLng([latDestino, lonDestino]);
+        } else {
+            marcadorDestino = L.marker([latDestino, lonDestino], { color: 'red' }).addTo(mapa);
         }
 
-        function verificarEstadoCorrida() {
-            if (!pedidoAtivoId) return;
+        // Desenhar uma linha simples entre a origem e o destino
+        if (rotaLinha) {
+            rotaLinha.setLatLngs([[latUsuario, lonUsuario], [latDestino, lonDestino]]);
+        } else {
+            rotaLinha = L.polyline([[latUsuario, lonUsuario], [latDestino, lonDestino]], { color: 'orange', weight: 4 }).addTo(mapa);
+        }
 
-            fetch(`/api/pedido/${pedidoAtivoId}`)
+        // Focar o mapa para mostrar ambos os pontos
+        const grupo = new L.featureGroup([marcadorUsuario, marcadorDestino]);
+        mapa.fitBounds(grupo.getBounds().pad(0.2));
+
+        calcularTarifaReal();
+    }
+
+    // 4. Calcular distância real usando a fórmula de Haversine e definir tarifa
+    function calcularTarifaReal() {
+        if (!latDestino) return;
+
+        // Fórmula matemática para distância em km sobre a superfície da Terra
+        const R = 6371; // Raio da terra
+        const dLat = (latDestino - latUsuario) * Math.PI / 180;
+        const dLon = (lonDestino - lonUsuario) * Math.PI / 180;
+        const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                  Math.cos(latUsuario * Math.PI / 180) * Math.cos(latDestino * Math.PI / 180) *
+                  Math.sin(dLon/2) * Math.sin(dLon/2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        distanciaFinalKm = R * c;
+
+        // Se a distância for muito curta (ex: menos de 500m), arredondamos para 0.5km
+        if (distanciaFinalKm < 0.5) distanciaFinalKm = 0.5;
+
+        // Calcular Tarifa: Base + (Km * Preço por Km)
+        tarifaFinalMt = Math.round(TARIFA_BASE + (distanciaFinalKm * PRECO_POR_KM));
+
+        // Mostrar no ecrã
+        document.getElementById('distancia-texto').innerText = distanciaFinalKm.toFixed(1);
+        document.getElementById('tarifa-texto').innerText = tarifaFinalMt;
+        document.getElementById('info-viagem').style.display = 'block';
+    }
+
+    // 5. Enviar o Pedido real para o Servidor Node.js
+    let checkStatusInterval;
+
+    function enviarPedido() {
+        const telefone = document.getElementById('telefone').value;
+        const destino = document.getElementById('destino').value;
+
+        if (!telefone || !destino || !latDestino) {
+            alert("Por favor, introduz o teu número e seleciona um destino válido da lista.");
+            return;
+        }
+
+        const dadosPedido = {
+            telefone: telefone,
+            destino: destino,
+            latitude: latUsuario,
+            longitude: lonUsuario,
+            tarifa: tarifaFinalMt
+        };
+
+        fetch('/api/pedidos', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(dadosPedido)
+        })
+        .then(res => res.json())
+        .then(pedidoCriado => {
+            document.getElementById('btn-chamar').disabled = true;
+            iniciarMonitorizacaoPedido(pedidoCriado.id);
+        })
+        .catch(err => alert("Erro ao chamar táxi: " + err));
+    }
+
+    function iniciarMonitorizacaoPedido(id) {
+        const statusBox = document.getElementById('status-container');
+        statusBox.style.display = "block";
+
+        checkStatusInterval = setInterval(() => {
+            fetch(`/api/pedido/${id}`)
                 .then(res => res.json())
                 .then(pedido => {
-                    const titulo = document.getElementById('status-titulo');
-                    const desc = document.getElementById('status-descricao');
+                    const operadora = obterCarteiraMovel(pedido.telefone);
 
-                    if (pedido.estado === "Aceite") {
-                        titulo.innerText = "Motorista a caminho! 🚖";
-                        desc.innerText = `O motorista com o número do painel aceitou a sua corrida. Valor a pagar no final: ${pedido.tarifa} MT.`;
-                    } else if (pedido.estado === "Em Viagem") {
-                        titulo.innerText = "Em viagem... 🗺️";
-                        desc.innerText = "Tenha uma boa viagem! Acompanhe o trajeto.";
-                    } else if (pedido.estado === "Aguardando_Pagamento") {
-                        titulo.innerText = "Viagem Concluída! 🏁";
-                        desc.innerText = "Por favor, efetue o pagamento para encerrar o serviço.";
-                        
-                        // Mostra o pop-up de simulação do Mobile Money
-                        document.getElementById('area-pagamento').style.display = 'block';
-                        document.getElementById('pagamento-valor').innerText = pedido.tarifa;
-                        
-			// Define a operadora correta baseada nos prefixos de Moçambique 🇲🇿
-			const prefixo = pedido.telefone.substring(0, 2);
-			if (prefixo === "82" || prefixo === "83") {
-			    document.getElementById('operadora-texto').innerText = "SMS PUSH MKESH (TMCEL) 📱";
-			} else if (prefixo === "84" || prefixo === "85") {
-			    document.getElementById('operadora-texto').innerText = "SMS PUSH M-PESA (VODACOM) 📱";
-			} else if (prefixo === "86" || prefixo === "87") {
-			    document.getElementById('operadora-texto').innerText = "SMS PUSH e-MOLA (MOVITEL) 📱";
-			} else {
-			    document.getElementById('operadora-texto').innerText = "SMS PUSH (CARTEIRA MÓVEL) 📱";
-			}
-                    } else if (pedido.estado === "Pago") {
-                        titulo.innerText = "Obrigado! Corrida Paga. 🎉";
-                        desc.innerText = "O pagamento foi recebido com sucesso. Já pode fechar esta página.";
-                        document.getElementById('area-pagamento').style.display = 'none';
-                        clearInterval(intervalVerificacao);
+                    if (pedido.estado === "Pendente") {
+                        statusBox.style.backgroundColor = "#ffeeba";
+                        statusBox.style.color = "#856404";
+                        statusBox.innerText = "🔎 À procura de um motorista por perto...";
+                    } 
+                    else if (pedido.estado === "Aceite") {
+                        statusBox.style.backgroundColor = "#cce5ff";
+                        statusBox.style.color = "#004085";
+                        statusBox.innerText = "🚖 O motorista aceitou o teu pedido e está a caminho!";
+                    } 
+                    else if (pedido.estado === "Em Viagem") {
+                        statusBox.style.backgroundColor = "#ffe8d6";
+                        statusBox.style.color = "#a04000";
+                        statusBox.innerText = "🗺️ Estás em viagem! Aproveita o percurso.";
+                    } 
+                    else if (pedido.estado === "Aguardando_Pagamento") {
+                        statusBox.style.backgroundColor = "#f8d7da";
+                        statusBox.style.color = "#721c24";
+                        statusBox.innerHTML = `💸 Viagem Terminada! <br>Por favor, confirma o pagamento de <strong>${pedido.tarifa} MT</strong> que enviámos para o teu telemóvel via <strong>${operadora}</strong>.`;
+                    } 
+                    else if (pedido.estado === "Pago") {
+                        statusBox.style.backgroundColor = "#d4edda";
+                        statusBox.style.color = "#155724";
+                        statusBox.innerHTML = `🎉 Pago com Sucesso via ${operadora}! Obrigado por viajares com o TaxiExpress!`;
+                        clearInterval(checkStatusInterval);
+                        document.getElementById('btn-chamar').disabled = false;
                     }
                 });
-        }
+        }, 3000);
+    }
 
-        function confirmarPagamento() {
-            const pin = document.getElementById('pin-carteira').value;
-            if (!pin || pin.length < 4) {
-                alert("Por favor, introduza um PIN simulado válido de 4 dígitos.");
-                return;
-            }
+    function obterCarteiraMovel(telefone) {
+        if (!telefone) return "Telemóvel";
+        const prefixo = telefone.substring(0, 2);
+        if (prefixo === "82" || prefixo === "83") return "mKesh";
+        if (prefixo === "84" || prefixo === "85") return "M-Pesa";
+        if (prefixo === "86" || prefixo === "87") return "e-Mola";
+        return "Carteira Móvel";
+    }
 
-            fetch(`/api/pedido/${pedidoAtivoId}/pagar`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ pin: pin })
-            })
-            .then(res => res.json())
-            .then(data => {
-                alert("PIN processado! Pagamento efetuado.");
-                verificarEstadoCorrida();
-            });
-        }
-    </script>
+    // Inicializar o mapa ao abrir a página
+    window.onload = inicializarMapa;
+</script>
 </body>
 </html>
