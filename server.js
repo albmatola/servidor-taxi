@@ -132,37 +132,38 @@ app.post('/api/pedido/:id/pagar', (req, res) => {
 });
 
 // ==========================================
-// 💬 SISTEMA DE SOCKET.IO (CHAT EM TEMPO REAL)
+// 💬 CONFIGURAÇÃO DO SOCKET.IO (CHAT EM TEMPO REAL)
 // ==========================================
 io.on('connection', (socket) => {
-    console.log(`Dispositivo conectado ao WebSocket 🔌 (ID: ${socket.id})`);
+    console.log(`🔌 Novo utilizador ligado ao Socket: ${socket.id}`);
 
-    // 1. Entrar na sala dedicada da viagem (junta o passageiro e o motorista na mesma sala)
+    // 1. Entrar na sala do chat específica daquela viagem
     socket.on('entrar_chat', (dados) => {
         const { pedidoId, utilizador } = dados;
-        const sala = `viagem_${pedidoId}`;
+        const nomeSala = `viagem_${pedidoId}`;
         
-        socket.join(sala);
-        console.log(`[CHAT] O ${utilizador} entrou na sala ${sala}`);
+        socket.join(nomeSala);
+        console.log(`👥 [${utilizador.toUpperCase()}] entrou na sala do chat: ${nomeSala}`);
     });
 
-    // 2. Receber e reencaminhar mensagens de chat
+    // 2. Receber a mensagem de um lado e retransmitir para o outro na mesma sala
     socket.on('enviar_mensagem', (dados) => {
         const { pedidoId, texto, remetente } = dados;
-        const sala = `viagem_${pedidoId}`;
+        const nomeSala = `viagem_${pedidoId}`;
 
-        // Envia a mensagem para todos os outros integrantes da sala específica
-        socket.to(sala).emit('mensagem_recebida', {
-            pedidoId,
-            texto,
-            remetente
+        console.log(`💬 Mensagem em [${nomeSala}] de [${remetente}]: "${texto}"`);
+
+        // Envia para TODOS os utilizadores na sala (incluindo o que enviou)
+        // Usar "io.to" garante que ambos os lados recebem o sinal em tempo real
+        io.to(nomeSala).emit('mensagem_recebida', {
+            pedidoId: pedidoId,
+            texto: texto,
+            remetente: remetente
         });
-        
-        console.log(`[MENSAGEM] Sala ${sala} - ${remetente}: "${texto}"`);
     });
 
     socket.on('disconnect', () => {
-        console.log(`Dispositivo desconectado do WebSocket ❌`);
+        console.log(`🔌 Utilizador desligado do Socket: ${socket.id}`);
     });
 });
 
