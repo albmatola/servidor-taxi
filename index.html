@@ -102,7 +102,7 @@
 
     <!-- Campo do Número -->
     <label for="telefone">Teu Número de Telemóvel:</label>
-    <input type="tel" id="telefone" placeholder="Ex: 841234567" required maxlength="9">
+    <input type="tel" id="telefone" placeholder="Ex: 831234567" required maxlength="9">
 
     <!-- Campo do Destino com Busca Ativa -->
     <label for="destino">Para onde vais?</label>
@@ -326,7 +326,7 @@
         const destino = document.getElementById('destino').value;
 
         if (!telefone || !validarTelefoneMoçambique(telefone)) {
-            alert("Por favor, introduz um número de telemóvel moçambicano válido (Ex: 841234567, de 9 dígitos).");
+            alert("Por favor, introduz um número de telemóvel moçambicano válido (Ex: 831234567, de 9 dígitos).");
             return;
         }
 

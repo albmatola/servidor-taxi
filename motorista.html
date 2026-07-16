@@ -116,6 +116,9 @@
     <script>
     // Inicializar o socket do lado do cliente
     let socket;
+    let idViagemAtiva = null; // Guarda o ID da viagem em curso para o Chat
+    let estaAProcessar = false;
+
     try {
         socket = io();
         
@@ -129,9 +132,6 @@
     } catch(e) {
         console.warn("Socket.io não pôde ser inicializado. Garante que o servidor Node tem o Socket.io configurado.", e);
     }
-
-    let idViagemAtiva = null; // Guarda o ID da viagem em curso para o Chat
-    let estaAProcessar = false;
 
     // Função inteligente que suporta prefixos internacionais
     function obterCarteiraMovel(telefone) {
@@ -224,14 +224,17 @@
                 container.innerHTML = '';
                 container.appendChild(fragmento);
 
-                // Mostra ou esconde o chat com base no estado da viagem ativa
+                // ==========================================
+                // LÓGICA DE EXIBIÇÃO DO CHAT CORRIGIDA
+                // ==========================================
                 if (temViagemAtivaParaChat) {
-                    // Evita limpar o chat caso a viagem já esteja focada
+                    // Se mudámos de viagem ativa (ou se tínhamos null), limpamos o histórico antigo
                     if (idViagemAtiva !== idNovaViagemAtiva) {
                         idViagemAtiva = idNovaViagemAtiva;
-                        document.getElementById('mensagens-box').innerHTML = ''; // Limpa mensagens de viagens anteriores
-                        mostrarChat(idViagemAtiva);
+                        document.getElementById('mensagens-box').innerHTML = ''; 
                     }
+                    // Força sempre a exibição do chat se houver uma viagem em curso
+                    mostrarChat(idViagemAtiva);
                 } else {
                     esconderChat();
                 }
@@ -279,11 +282,12 @@
         const chatBox = document.getElementById('chat-express');
         const badgeId = document.getElementById('chat-pedido-id');
         
+        // Garante que o painel de chat fica visível
         chatBox.style.display = 'flex';
         badgeId.innerText = `ID Viagem: #${idPedido}`;
         
-        // Regista o motorista na sala específica daquela viagem
-        if (socket) {
+        // Regista o motorista na sala específica daquela viagem se o socket estiver ligado
+        if (socket && socket.connected) {
             socket.emit('entrar_chat', { pedidoId: idPedido, utilizador: 'motorista' });
         }
     }
