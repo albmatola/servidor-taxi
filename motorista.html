@@ -307,7 +307,7 @@
             // Envia a mensagem via socket para o passageiro
             socket.emit('enviar_mensagem', {
                 pedidoId: idViagemAtiva,
-                texto: message = mensagem,
+                texto: mensagem,
                 remetente: 'motorista'
             });
 
