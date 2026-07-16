@@ -66,7 +66,7 @@
             <input type="text" id="destination" placeholder="Para onde vai?">
         </div>
         <p style="margin: 5px 0 15px 0; font-size: 13px; color: #666;">
-            * Est. de Tarifa: <strong id="estimativa-valor">150 - 450 MT</strong> (M-Pesa/e-Mola ou Dinheiro)
+            * Est. de Tarifa: <strong id="estimativa-valor">150 - 450 MT</strong> (mKesh/M-Pesa/e-Mola ou Dinheiro)
         </p>
         <button class="btn" onclick="solicitarTaxi()">Solicitar Táxi Temporário</button>
     </div>
@@ -76,7 +76,7 @@
         <h3 id="status-titulo">A procurar motorista... 🔍</h3>
         <p id="status-descricao">O teu pedido foi enviado para a rede.</p>
         <div id="area-pagamento" style="display: none; background: #f0f0f7; padding: 15px; border-radius: 8px; margin-top: 15px;">
-            <p style="margin-top: 0; font-weight: bold; color: #e60000;" id="operadora-texto">SMS PUSH M-PESA / e-MOLA 📱</p>
+            <p style="margin-top: 0; font-weight: bold; color: #e60000;" id="operadora-texto">SMS PUSH mKesh / M-PESA / e-MOLA 📱</p>
             <p>Introduza o seu PIN fictício para autorizar o pagamento de <strong id="pagamento-valor">0</strong> MT:</p>
             <input type="password" id="pin-carteira" placeholder="PIN de 4 dígitos" style="padding: 10px; width: 60%; font-size: 16px; text-align: center; border-radius: 5px; border: 1px solid #ccc; margin-bottom: 10px;"><br>
             <button onclick="confirmarPagamento()" style="background: #28a745; color: white; border: none; padding: 10px 20px; font-weight: bold; border-radius: 5px; cursor: pointer;">Confirmar e Pagar</button>
@@ -186,13 +186,17 @@
                         document.getElementById('area-pagamento').style.display = 'block';
                         document.getElementById('pagamento-valor').innerText = pedido.tarifa;
                         
-                        // Define operadora fictícia baseada no prefixo do número
-                        const prefixo = pedido.telefone.substring(0, 2);
-                        if (prefixo === "86" || prefixo === "87") {
-                            document.getElementById('operadora-texto').innerText = "SMS PUSH e-MOLA (TMCEL) 📱";
-                        } else {
-                            document.getElementById('operadora-texto').innerText = "SMS PUSH M-PESA (VODACOM) 📱";
-                        }
+			// Define a operadora correta baseada nos prefixos de Moçambique 🇲🇿
+			const prefixo = pedido.telefone.substring(0, 2);
+			if (prefixo === "82" || prefixo === "83") {
+			    document.getElementById('operadora-texto').innerText = "SMS PUSH MKESH (TMCEL) 📱";
+			} else if (prefixo === "84" || prefixo === "85") {
+			    document.getElementById('operadora-texto').innerText = "SMS PUSH M-PESA (VODACOM) 📱";
+			} else if (prefixo === "86" || prefixo === "87") {
+			    document.getElementById('operadora-texto').innerText = "SMS PUSH e-MOLA (MOVITEL) 📱";
+			} else {
+			    document.getElementById('operadora-texto').innerText = "SMS PUSH (CARTEIRA MÓVEL) 📱";
+			}
                     } else if (pedido.estado === "Pago") {
                         titulo.innerText = "Obrigado! Corrida Paga. 🎉";
                         desc.innerText = "O pagamento foi recebido com sucesso. Já pode fechar esta página.";
