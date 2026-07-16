@@ -155,7 +155,7 @@
         socket.on('mensagem_recebida', (dados) => {
             if (idPedidoAtivo && dados.pedidoId === idPedidoAtivo) {
 		// Se quem enviou NÃO foi o cliente, então é uma mensagem do motorista
-		if (dados.remetente !== 'cliente') { // ou 'passageiro', dependendo do teu código
+		if (dados.remetente !== 'passageiro') { // ou 'passageiro', dependendo do teu código
             		adicionarMensagemAoEcrã(dados.texto, 'outra');
         	}
             }
