@@ -54,7 +54,8 @@ app.post('/api/pedidos', (req, res) => {
         longitude: longitude || 32.5732,
         tarifa: tarifa || 150, // Se não vier tarifa, assume a taxa base de 150 MT
         estado: "Pendente",
-        pagamentoStatus: "Nenhum"
+        pagamentoStatus: "Nenhum",
+        codigoTransacao: null // 👈 Campo adicionado para registar a transferência manual
     };
 
     pedidos.push(novoPedido);
@@ -129,6 +130,52 @@ app.post('/api/pedido/:id/pagar', (req, res) => {
 
     console.log(`💳 [PAGAMENTO CONFIRMADO] Pedido #${pedido.id} de ${pedido.tarifa} MT pago via Mobile Money (PIN validado).`);
     res.json({ mensagem: "Pagamento processado com sucesso!", pedido });
+});
+
+// =========================================================================
+// 🆕 ROTA 6: Receber Confirmação de Transferência Manual (Código de Transação)
+// =========================================================================
+app.post('/api/pedido/:id/confirmar-manual', (req, res) => {
+    const idPedido = parseInt(req.params.id);
+    const { codigoTransacao } = req.body;
+
+    if (!codigoTransacao || codigoTransacao.trim() === "") {
+        return res.status(400).json({ erro: "O código de transação é obrigatório." });
+    }
+
+    const pedido = pedidos.find(p => p.id === idPedido);
+    if (!pedido) {
+        return res.status(404).json({ erro: "Pedido não encontrado." });
+    }
+
+    if (pedido.estado !== "Aguardando_Pagamento") {
+        return res.status(400).json({ erro: `Este pedido está no estado '${pedido.estado}' e não aguarda pagamento.` });
+    }
+
+    // Atualiza os dados do pedido com o código inserido
+    pedido.codigoTransacao = codigoTransacao.trim().toUpperCase();
+    pedido.estado = "Pago"; // Atualiza para Pago (ou podias criar um estado "Em_Verificacao" se o motorista validar)
+    pedido.pagamentoStatus = "Pago";
+
+    const nomeSala = `viagem_${idPedido}`;
+
+    // 📢 Notifica o motorista em tempo real via canal de eventos de estado
+    io.to(nomeSala).emit('pagamento_confirmado', { pedido });
+
+    // 💬 Envia uma mensagem automática no chat para registar o comprovativo na conversa
+    io.to(nomeSala).emit('mensagem_recebida', {
+        pedidoId: idPedido,
+        texto: `📢 [SISTEMA] O cliente confirmou o envio. Código de Transação: ${pedido.codigoTransacao}`,
+        remetente: 'sistema'
+    });
+
+    console.log(`✅ [TRANSFERÊNCIA INFORMADA] Pedido #${idPedido} pago manualmente. Código: ${pedido.codigoTransacao}`);
+    
+    res.json({
+        sucesso: true,
+        mensagem: "Confirmação manual recebida com sucesso!",
+        pedido
+    });
 });
 
 // ==========================================

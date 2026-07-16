@@ -34,7 +34,7 @@
         .btn-pagar:hover { background-color: #218838; }
 
         /* ==========================================
-           💬 ESTILOS DO CHAT INTEGRADO (NOVO)
+            💬 ESTILOS DO CHAT INTEGRADO
         ========================================== */
         .chat-container {
             border: 1px solid #ccc;
@@ -126,7 +126,7 @@
     <!-- Caixa de Estado do Pedido -->
     <div id="status-container" class="status-box"></div>
 
-    <!-- Interface Dinâmica do Chat (NOVO) -->
+    <!-- Interface Dinâmica do Chat -->
     <div class="chat-container" id="chat-passageiro">
         <div style="background: #007bff; color: white; padding: 10px; font-weight: bold; border-radius: 8px 8px 0 0; font-size: 14px;">
             💬 Conversa com o Motorista
@@ -142,7 +142,7 @@
 <!-- Scripts do Leaflet para o Mapa -->
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-<!-- 1. Carrega o Socket.io de forma nativa a partir do servidor (NOVO) -->
+<!-- 1. Carrega o Socket.io de forma nativa a partir do servidor -->
 <script src="/socket.io/socket.io.js"></script>
 
 <script>
@@ -154,10 +154,10 @@
         // Ouvir mensagens enviadas pelo motorista
         socket.on('mensagem_recebida', (dados) => {
             if (idPedidoAtivo && dados.pedidoId === idPedidoAtivo) {
-		// Se quem enviou NÃO foi o cliente, então é uma mensagem do motorista
-		if (dados.remetente !== 'passageiro') { // ou 'passageiro', dependendo do teu código
-            		adicionarMensagemAoEcrã(dados.texto, 'outra');
-        	}
+                // Se quem enviou NÃO foi o cliente, então é uma mensagem do motorista
+                if (dados.remetente !== 'passageiro') { 
+                    adicionarMensagemAoEcrã(dados.texto, 'outra');
+                }
             }
         });
     } catch(e) {
@@ -410,13 +410,37 @@
                     else if (pedido.estado === "Aguardando_Pagamento") {
                         statusBox.style.backgroundColor = "#f8d7da";
                         statusBox.style.color = "#721c24";
+                        
+                        // 1. Identificar a operadora do cliente
+                        const operadora = obterCarteiraMovel(pedido.telefone);
+                        
+                        // 2. Definir o número da tua empresa com base na operadora dele
+                        let numeroEmpresa = "";
+                        if (operadora === "M-Pesa") numeroEmpresa = "84 592 2620";
+                        else if (operadora === "e-Mola") numeroEmpresa = "86 592 2620";
+                        else if (operadora === "mKesh") numeroEmpresa = "82 592 2620";
+                        else numeroEmpresa = "82 592 2620 (mkesh)"; // Fallback
+
+                        // 3. Desenhar o ecrã com as instruções de transferência manual
                         statusBox.innerHTML = `
-                            💸 Viagem Terminada! <br>
-                            Por favor, confirma o pagamento de <strong>${pedido.tarifa} MT</strong> enviado para o teu telemóvel via <strong>${operadora}</strong>.<br>
-                            <button class="btn-pagar" onclick="solicitarPin('${pedido.id}', '${operadora}')">Autorizar Débito (Inserir PIN) ✅</button>
+                            <div style="text-align: left; padding: 5px;">
+                                <h3 style="margin-top: 0; color: #721c24; text-align: center;">🏁 Viagem Terminada!</h3>
+                                <p>Para pagar, efetue uma transferência manual na sua operadora:</p>
+                                
+                                <div style="background: white; border: 1px solid #f5c6cb; padding: 10px; border-radius: 5px; margin-bottom: 12px; font-family: monospace; font-size: 14px;">
+                                    📱 <b>Operadora:</b> ${operadora}<br>
+                                    📞 <b>Enviar para:</b> ${numeroEmpresa}<br>
+                                    💰 <b>Valor Exato:</b> <span style="font-size: 16px; color: #dc3545;"><b>${pedido.tarifa} MT</b></span>
+                                </div>
+
+                                <label style="color: #721c24; font-size: 13px; margin-top: 10px;"><b>Introduza o Código de Transação (da SMS):</b></label>
+                                <input type="text" id="codigo-transacao" placeholder="Ex: QG76AX981" style="border: 1px solid #dc3545; margin-bottom: 10px; text-transform: uppercase;">
+
+                                <button class="btn-pagar" style="background-color: #dc3545;" onclick="confirmarEnvioManual('${pedido.id}')">Confirmar Pagamento Enviado ✅</button>
+                            </div>
                         `;
-                        esconderChat(); // Esconde o chat na fase de pagamento para focar na transação
-                    } 
+                        esconderChat(); 
+                    }
                     else if (pedido.estado === "Pago") {
                         statusBox.style.backgroundColor = "#d4edda";
                         statusBox.style.color = "#155724";
@@ -434,7 +458,7 @@
     }
 
     // ==========================================
-    // ⚙️ FUNÇÕES DO CHAT DE CONVERSA (NOVO)
+    // ⚙️ FUNÇÕES DO CHAT DE CONVERSA
     // ==========================================
     function mostrarChat() {
         document.getElementById('chat-passageiro').style.display = 'flex';
@@ -458,7 +482,7 @@
             // Envia a mensagem via socket
             socket.emit('enviar_mensagem', {
                 pedidoId: idPedidoAtivo,
-                texto: mensagem,
+                texto: message, // alterado para enviar o texto correto
                 remetente: 'passageiro'
             });
 
@@ -478,7 +502,46 @@
         box.scrollTop = box.scrollHeight; // Mantém o scroll no fundo
     }
 
-    // Pergunta o PIN ao utilizador antes de enviar o sinal ao servidor
+    // ==========================================
+    // 💰 FUNÇÕES DE PAGAMENTO MANUAL E SIMULAÇÕES
+    // ==========================================
+
+    // Função que envia o código de confirmação manual ao Servidor
+    function confirmarEnvioManual(idPedido) {
+        const codigoInput = document.getElementById('codigo-transacao');
+        if (!codigoInput) return;
+        
+        const codigo = codigoInput.value.trim().toUpperCase();
+
+        if (!codigo) {
+            alert("Por favor, introduza o código de confirmação da transação que recebeu por SMS.");
+            return;
+        }
+
+        fetch(`/api/pedido/${idPedido}/confirmar-manual`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ codigoTransacao: codigo })
+        })
+        .then(res => {
+            if (!res.ok) throw new Error("Erro ao registar confirmação.");
+            return res.json();
+        })
+        .then(dados => {
+            const statusBox = document.getElementById('status-container');
+            statusBox.style.backgroundColor = "#e2e3e5";
+            statusBox.style.color = "#383d41";
+            statusBox.innerHTML = `
+                ⏳ <b>Obrigado!</b><br>
+                O teu código (<b>${codigo}</b>) foi enviado. O sistema ou o motorista estão a validar a receção do valor na carteira da empresa. Aguarda um momento...
+            `;
+        })
+        .catch(err => {
+            alert("Não foi possível enviar a confirmação: " + err.message);
+        });
+    }
+
+    // Pergunta o PIN ao utilizador antes de enviar o sinal ao servidor (Legado/Opcional)
     function solicitarPin(id, operadora) {
         const pinDigitado = prompt(`[${operadora}] Introduz o teu PIN de 4 dígitos para autorizar o pagamento:`);
         
@@ -492,7 +555,7 @@
         simularPagamento(id, pinDigitado);
     }
 
-    // Função de pagamento atualizada para enviar o PIN para a API
+    // Função de pagamento antiga para enviar o PIN para a API (Legado/Opcional)
     function simularPagamento(id, pin) {
         fetch(`/api/pedido/${id}/pagar`, {
             method: 'POST',
