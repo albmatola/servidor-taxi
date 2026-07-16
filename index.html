@@ -39,11 +39,11 @@
 
     <!-- Campo do Número -->
     <label for="telefone">Teu Número de Telemóvel:</label>
-    <input type="tel" id="telefone" placeholder="Ex: 841234567" required maxlength="9">
+    <input type="tel" id="telefone" placeholder="Ex: 831234567" required maxlength="9">
 
     <!-- Campo do Destino com Busca Ativa -->
     <label for="destino">Para onde vais?</label>
-    <input type="text" id="destino" placeholder="Digita o local de destino em Maputo..." oninput="buscarDestinos(this.value)" autocomplete="off">
+    <input type="text" id="destino" placeholder="Digita o local de destino in Maputo..." oninput="buscarDestinos(this.value)" autocomplete="off">
     <div id="sugestoes" class="sugestoes-box" style="display: none;"></div>
 
     <!-- O Mapa Interativo -->
@@ -236,7 +236,7 @@
         const destino = document.getElementById('destino').value;
 
         if (!telefone || !validarTelefoneMoçambique(telefone)) {
-            alert("Por favor, introduz um número de telemóvel moçambicano válido (Ex: 841234567, 9 dígitos).");
+            alert("Por favor, introduz um número de telemóvel moçambicano válido (Ex: 831234567, 9 dígitos).");
             return;
         }
 
@@ -307,10 +307,11 @@
                     else if (pedido.estado === "Aguardando_Pagamento") {
                         statusBox.style.backgroundColor = "#f8d7da";
                         statusBox.style.color = "#721c24";
+                        // Chamamos a função solicitarPin(...) ao clicar no botão
                         statusBox.innerHTML = `
                             💸 Viagem Terminada! <br>
                             Por favor, confirma o pagamento de <strong>${pedido.tarifa} MT</strong> enviado para o teu telemóvel via <strong>${operadora}</strong>.<br>
-                            <button class="btn-pagar" onclick="simularPagamento('${pedido.id}')">Autorizar Débito (Inserir PIN) ✅</button>
+                            <button class="btn-pagar" onclick="solicitarPin('${pedido.id}', '${operadora}')">Autorizar Débito (Inserir PIN) ✅</button>
                         `;
                     } 
                     else if (pedido.estado === "Pago") {
@@ -327,18 +328,36 @@
         }, 3000);
     }
 
-    // Função para enviar o sinal de pagamento autorizado ao servidor
-    function simularPagamento(id) {
+    // Pergunta o PIN ao utilizador antes de enviar o sinal ao servidor
+    function solicitarPin(id, operadora) {
+        const pinDigitado = prompt(`[${operadora}] Introduz o teu PIN de 4 dígitos para autorizar o pagamento:`);
+        
+        // Se o utilizador clicar em cancelar ou fechar a caixa
+        if (pinDigitado === null) return; 
+
+        // Pequena validação para garantir que colocou números
+        if (pinDigitado.length < 4 || isNaN(pinDigitado)) {
+            alert("Erro: O PIN deve conter pelo menos 4 números.");
+            return;
+        }
+
+        // Se o PIN for válido, enviamos o sinal juntamente com o PIN
+        simularPagamento(id, pinDigitado);
+    }
+
+    // Função de pagamento atualizada para enviar o PIN para a API
+    function simularPagamento(id, pin) {
         fetch(`/api/pedido/${id}/pagar`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pin: pin }) // Envia o PIN no corpo (Body) da requisição
         })
         .then(res => {
-            if (!res.ok) throw new Error("Erro ao processar o pagamento fictício.");
+            if (!res.ok) throw new Error("Erro ao processar o pagamento.");
             return res.json();
         })
         .then(dados => {
-            console.log("Sinal de pagamento enviado com sucesso!");
+            console.log("Sinal de pagamento com PIN enviado com sucesso!");
         })
         .catch(err => {
             alert("Não foi possível simular o pagamento: " + err.message);
