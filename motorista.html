@@ -25,7 +25,7 @@
 <body>
 
     <h1>Painel de Pedidos Recentes (Motorista) 🚖</h1>
-    <p>Gere viagens e simula cobranças diretas por M-Pesa / e-Mola.</p>
+    <p>Gere viagens e simula cobranças diretas por <strong>M-Pesa, e-Mola ou mKesh</strong>.</p>
     
     <button onclick="carregarPedidos()" style="padding: 10px; margin-bottom: 20px; cursor: pointer; font-weight: bold;">
         🔄 Atualizar Lista de Chamadas
@@ -36,6 +36,16 @@
     </div>
 
     <script>
+        // Função auxiliar para descobrir a carteira móvel pelo prefixo moçambicano 🇲🇿
+        function obterCarteiraMovel(telefone) {
+            if (!telefone) return "Telemóvel";
+            const prefixo = telefone.substring(0, 2);
+            if (prefixo === "82" || prefixo === "83") return "mKesh";
+            if (prefixo === "84" || prefixo === "85") return "M-Pesa";
+            if (prefixo === "86" || prefixo === "87") return "e-Mola";
+            return "Carteira Móvel";
+        }
+
         function carregarPedidos() {
             fetch('/api/pedidos')
                 .then(response => response.json())
@@ -53,6 +63,7 @@
                         card.className = 'pedido-card';
                         
                         const gpsLink = `https://www.google.com/maps/search/?api=1&query=${pedido.latitude},${pedido.longitude}`;
+                        const carteira = obterCarteiraMovel(pedido.telefone);
                         
                         // Determinar o estilo da etiqueta de estado
                         let badgeClass = "badge-pendente";
@@ -73,9 +84,9 @@
                         } else if (pedido.estado === "Em Viagem") {
                             botoesAcao = `<button class="btn btn-concluir" onclick="alterarEstado(${pedido.id}, 'Aguardando_Pagamento')">Concluir e Cobrar por Telemóvel 🏁</button>`;
                         } else if (pedido.estado === "Aguardando_Pagamento") {
-                            botoesAcao = `<p style="color: #721c24; font-weight: bold; margin-top: 10px;">⌛ Aguardando que o cliente autorize o débito de ${pedido.tarifa} MT no telemóvel...</p>`;
+                            botoesAcao = `<p style="color: #721c24; font-weight: bold; margin-top: 10px;">⌛ Aguardando que o cliente autorize o débito de ${pedido.tarifa} MT via ${carteira}...</p>`;
                         } else if (pedido.estado === "Pago") {
-                            botoesAcao = `<p style="color: #155724; font-weight: bold; margin-top: 10px;">✅ Serviço Pago! Recebido: ${pedido.tarifa} MT via Mobile Money.</p>`;
+                            botoesAcao = `<p style="color: #155724; font-weight: bold; margin-top: 10px;">✅ Serviço Pago! Recebido: ${pedido.tarifa} MT via ${carteira}.</p>`;
                         }
 
                         card.innerHTML = `
