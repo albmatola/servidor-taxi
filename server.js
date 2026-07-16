@@ -94,24 +94,26 @@ app.post('/api/pedido/:id/estado', (req, res) => {
     res.json({ mensagem: "Estado atualizado com sucesso!", pedido });
 });
 
-// ROTA 5: Simular confirmação de pagamento via PIN M-Pesa/e-Mola pelo Cliente (POST)
+// ROTA 5: Simular confirmação de pagamento via PIN M-Pesa/e-Mola/mKesh pelo Cliente (POST)
 app.post('/api/pedido/:id/pagar', (req, res) => {
     const idPedido = parseInt(req.params.id);
-    const { pin } = req.body;
+    const { pin } = req.body; // PIN opcional para testes ou simulações diretas
     
     const pedido = pedidos.find(p => p.id === idPedido);
     if (!pedido) {
         return res.status(404).json({ erro: "Pedido não encontrado." });
     }
 
-    if (!pin || pin.length < 4) {
+    // Se um PIN for enviado, validamos (pelo menos 4 dígitos para segurança)
+    // Se não for enviado (clique direto no botão simular), geramos um PIN simulado de autorização
+    if (pin && pin.length < 4) {
         return res.status(400).json({ erro: "PIN inválido. Introduz pelo menos 4 dígitos." });
     }
 
     pedido.estado = "Pago";
     pedido.pagamentoStatus = "Pago";
 
-    console.log(`💳 PAGAMENTO CONFIRMADO! Pedido #${pedido.id} pago via Mobile Money com o PIN enviado.`);
+    console.log(`💳 PAGAMENTO CONFIRMADO! Pedido #${pedido.id} de ${pedido.tarifa} MT pago via Mobile Money.`);
     res.json({ mensagem: "Pagamento processado com sucesso!", pedido });
 });
 

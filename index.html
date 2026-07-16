@@ -22,8 +22,13 @@
 
         .btn { width: 100%; background-color: #ffcc00; border: none; padding: 12px; font-size: 18px; font-weight: bold; border-radius: 5px; cursor: pointer; margin-top: 15px; transition: 0.2s; }
         .btn:hover { background-color: #e6b800; }
+        .btn:disabled { background-color: #cccccc; cursor: not-allowed; }
         .info-viagem { background: #e9ecef; padding: 10px; border-radius: 5px; margin-top: 15px; font-size: 15px; }
         .status-box { margin-top: 20px; padding: 15px; border-radius: 5px; text-align: center; font-weight: bold; display: none; }
+        
+        /* Botão estilizado para autorizar o pagamento */
+        .btn-pagar { background-color: #28a745; color: white; border: none; padding: 10px 15px; font-size: 16px; font-weight: bold; border-radius: 5px; cursor: pointer; margin-top: 12px; width: 100%; transition: background 0.2s; }
+        .btn-pagar:hover { background-color: #218838; }
     </style>
 </head>
 <body>
@@ -34,7 +39,7 @@
 
     <!-- Campo do Número -->
     <label for="telefone">Teu Número de Telemóvel:</label>
-    <input type="tel" id="telefone" placeholder="Ex: 831234567" required>
+    <input type="tel" id="telefone" placeholder="Ex: 841234567" required maxlength="9">
 
     <!-- Campo do Destino com Busca Ativa -->
     <label for="destino">Para onde vais?</label>
@@ -93,15 +98,30 @@
                 lonUsuario = pos.coords.longitude;
                 mapa.setView([latUsuario, lonUsuario], 15);
 
+                if (marcadorUsuario) mapa.removeLayer(marcadorUsuario);
+                
                 marcadorUsuario = L.marker([latUsuario, lonUsuario], {
                     title: "Estás Aqui",
                     draggable: false
                 }).addTo(mapa).bindPopup("Estás Aqui 📍").openPopup();
+            }, error => {
+                console.warn("Acesso à localização negado. Usando centro de Maputo.");
+                configurarMarcadorPadrao();
             });
         } else {
-            // Caso falte GPS, coloca marcador padrão no centro
-            marcadorUsuario = L.marker([latUsuario, lonUsuario]).addTo(mapa);
+            configurarMarcadorPadrao();
         }
+    }
+
+    function configurarMarcadorPadrao() {
+        marcadorUsuario = L.marker([latUsuario, lonUsuario]).addTo(mapa)
+            .bindPopup("Maputo (Centro) 📍").openPopup();
+    }
+
+    // Validação de prefixos de Moçambique (82, 83, 84, 85, 86, 87)
+    function validarTelefoneMoçambique(telefone) {
+        const regex = /^(82|83|84|85|86|87)\d{7}$/;
+        return regex.test(telefone);
     }
 
     // 2. Procurar locais em Maputo em tempo real (Nominatim API)
@@ -117,14 +137,13 @@
 
         // Aguarda o utilizador parar de digitar para não sobrecarregar a rede
         timeoutBusca = setTimeout(() => {
-            // Filtramos a busca para Maputo, Moçambique para resultados precisos
             const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(texto)}+Maputo&limit=4`;
 
             fetch(url)
                 .then(res => res.json())
                 .then(dados => {
                     sugestoesDiv.innerHTML = '';
-                    if (dados.length === 0) {
+                    if (!dados || dados.length === 0) {
                         sugestoesDiv.style.display = 'none';
                         return;
                     }
@@ -132,13 +151,15 @@
                     dados.forEach(local => {
                         const div = document.createElement('div');
                         div.className = 'sugestao-item';
-                        // Simplificar o nome para não ficar muito longo
                         const nomeCurto = local.display_name.split(',').slice(0, 3).join(',');
                         div.innerText = nomeCurto;
                         div.onclick = () => selecionarDestino(local.lat, local.lon, nomeCurto);
                         sugestoesDiv.appendChild(div);
                     });
                     sugestoesDiv.style.display = 'block';
+                })
+                .catch(err => {
+                    console.error("Erro na busca de endereços:", err);
                 });
         }, 400);
     }
@@ -150,12 +171,23 @@
         document.getElementById('destino').value = nome;
         document.getElementById('sugestoes').style.display = 'none';
 
+        // Estilização alternativa para destacar o destino em vermelho
+        const redIcon = L.icon({
+            iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
+            shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.3.1/images/marker-shadow.png',
+            iconSize: [25, 41],
+            iconAnchor: [12, 41],
+            popupAnchor: [1, -34],
+            shadowSize: [41, 41]
+        });
+
         // Atualizar ou criar o marcador do destino no mapa
         if (marcadorDestino) {
             marcadorDestino.setLatLng([latDestino, lonDestino]);
         } else {
-            marcadorDestino = L.marker([latDestino, lonDestino], { color: 'red' }).addTo(mapa);
+            marcadorDestino = L.marker([latDestino, lonDestino], { icon: redIcon }).addTo(mapa);
         }
+        marcadorDestino.bindPopup("Destino Selecionado 🏁").openPopup();
 
         // Desenhar uma linha simples entre a origem e o destino
         if (rotaLinha) {
@@ -175,7 +207,6 @@
     function calcularTarifaReal() {
         if (!latDestino) return;
 
-        // Fórmula matemática para distância em km sobre a superfície da Terra
         const R = 6371; // Raio da terra
         const dLat = (latDestino - latUsuario) * Math.PI / 180;
         const dLon = (lonDestino - lonUsuario) * Math.PI / 180;
@@ -185,7 +216,7 @@
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
         distanciaFinalKm = R * c;
 
-        // Se a distância for muito curta (ex: menos de 500m), arredondamos para 0.5km
+        // Se a distância for muito curta, arredondamos para 0.5km
         if (distanciaFinalKm < 0.5) distanciaFinalKm = 0.5;
 
         // Calcular Tarifa: Base + (Km * Preço por Km)
@@ -201,11 +232,16 @@
     let checkStatusInterval;
 
     function enviarPedido() {
-        const telefone = document.getElementById('telefone').value;
+        const telefone = document.getElementById('telefone').value.trim();
         const destino = document.getElementById('destino').value;
 
-        if (!telefone || !destino || !latDestino) {
-            alert("Por favor, introduz o teu número e seleciona um destino válido da lista.");
+        if (!telefone || !validarTelefoneMoçambique(telefone)) {
+            alert("Por favor, introduz um número de telemóvel moçambicano válido (Ex: 841234567, 9 dígitos).");
+            return;
+        }
+
+        if (!destino || !latDestino) {
+            alert("Por favor, seleciona um destino válido a partir das sugestões.");
             return;
         }
 
@@ -217,26 +253,39 @@
             tarifa: tarifaFinalMt
         };
 
+        const btnChamar = document.getElementById('btn-chamar');
+        btnChamar.disabled = true;
+
         fetch('/api/pedidos', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(dadosPedido)
         })
-        .then(res => res.json())
+        .then(res => {
+            if (!res.ok) throw new Error("Erro na comunicação com o servidor.");
+            return res.json();
+        })
         .then(pedidoCriado => {
-            document.getElementById('btn-chamar').disabled = true;
             iniciarMonitorizacaoPedido(pedidoCriado.id);
         })
-        .catch(err => alert("Erro ao chamar táxi: " + err));
+        .catch(err => {
+            alert("Erro ao chamar táxi: " + err.message);
+            btnChamar.disabled = false;
+        });
     }
 
     function iniciarMonitorizacaoPedido(id) {
         const statusBox = document.getElementById('status-container');
         statusBox.style.display = "block";
 
+        if (checkStatusInterval) clearInterval(checkStatusInterval);
+
         checkStatusInterval = setInterval(() => {
             fetch(`/api/pedido/${id}`)
-                .then(res => res.json())
+                .then(res => {
+                    if (!res.ok) throw new Error("Sem resposta do servidor.");
+                    return res.json();
+                })
                 .then(pedido => {
                     const operadora = obterCarteiraMovel(pedido.telefone);
 
@@ -258,7 +307,11 @@
                     else if (pedido.estado === "Aguardando_Pagamento") {
                         statusBox.style.backgroundColor = "#f8d7da";
                         statusBox.style.color = "#721c24";
-                        statusBox.innerHTML = `💸 Viagem Terminada! <br>Por favor, confirma o pagamento de <strong>${pedido.tarifa} MT</strong> que enviámos para o teu telemóvel via <strong>${operadora}</strong>.`;
+                        statusBox.innerHTML = `
+                            💸 Viagem Terminada! <br>
+                            Por favor, confirma o pagamento de <strong>${pedido.tarifa} MT</strong> enviado para o teu telemóvel via <strong>${operadora}</strong>.<br>
+                            <button class="btn-pagar" onclick="simularPagamento('${pedido.id}')">Autorizar Débito (Inserir PIN) ✅</button>
+                        `;
                     } 
                     else if (pedido.estado === "Pago") {
                         statusBox.style.backgroundColor = "#d4edda";
@@ -267,8 +320,29 @@
                         clearInterval(checkStatusInterval);
                         document.getElementById('btn-chamar').disabled = false;
                     }
+                })
+                .catch(err => {
+                    console.error("Erro ao verificar estado:", err);
                 });
         }, 3000);
+    }
+
+    // Função para enviar o sinal de pagamento autorizado ao servidor
+    function simularPagamento(id) {
+        fetch(`/api/pedido/${id}/pagar`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        })
+        .then(res => {
+            if (!res.ok) throw new Error("Erro ao processar o pagamento fictício.");
+            return res.json();
+        })
+        .then(dados => {
+            console.log("Sinal de pagamento enviado com sucesso!");
+        })
+        .catch(err => {
+            alert("Não foi possível simular o pagamento: " + err.message);
+        });
     }
 
     function obterCarteiraMovel(telefone) {
