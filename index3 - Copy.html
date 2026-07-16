@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TaxiExpress - Chame sem instalar</title>
+    <!-- Leaflet CSS para o Mapa -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            margin: 0; 
+            padding: 0; 
+            display: flex; 
+            flex-direction: column; 
+            height: 100vh; 
+            background-color: #f4f4f9;
+        }
+        #map { 
+            flex-grow: 1; 
+            width: 100%; 
+        }
+        .booking-panel { 
+            padding: 20px; 
+            background: white; 
+            box-shadow: 0 -3px 10px rgba(0,0,0,0.2); 
+            border-radius: 16px 16px 0 0; 
+            z-index: 1000; 
+        }
+        .btn { 
+            background: #ffcc00; 
+            border: none; 
+            padding: 15px; 
+            width: 100%; 
+            font-size: 16px; 
+            font-weight: bold; 
+            border-radius: 8px; 
+            cursor: pointer; 
+            transition: background 0.2s;
+        }
+        .btn:hover {
+            background: #e6b800;
+        }
+        .input-group { 
+            margin-bottom: 15px; 
+        }
+        .input-group input { 
+            width: 100%; 
+            padding: 12px; 
+            box-sizing: border-box; 
+            border: 1px solid #ccc; 
+            border-radius: 8px; 
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+
+    <div class="booking-panel" id="painel-principal">
+        <h3 style="margin-top: 0;">Pedir Táxi Agora 🚖</h3>
+        <div class="input-group">
+            <input type="tel" id="phone" placeholder="Telemóvel (ex: 841234567)" required>
+        </div>
+        <div class="input-group">
+            <input type="text" id="destination" placeholder="Para onde vai?">
+        </div>
+        <p style="margin: 5px 0 15px 0; font-size: 13px; color: #666;">
+            * Est. de Tarifa: <strong id="estimativa-valor">150 - 450 MT</strong> (mKesh/M-Pesa/e-Mola ou Dinheiro)
+        </p>
+        <button class="btn" onclick="solicitarTaxi()">Solicitar Táxi Temporário</button>
+    </div>
+
+    <!-- PAINEL DE MONITORIZAÇÃO E PAGAMENTO (SOBREPOSTO) -->
+    <div id="painel-status" style="display: none; position: fixed; bottom: 0; left: 0; right: 0; padding: 25px; background: white; border-radius: 16px 16px 0 0; box-shadow: 0 -3px 15px rgba(0,0,0,0.3); z-index: 2000; text-align: center;">
+        <h3 id="status-titulo">A procurar motorista... 🔍</h3>
+        <p id="status-descricao">O teu pedido foi enviado para a rede.</p>
+        <div id="area-pagamento" style="display: none; background: #f0f0f7; padding: 15px; border-radius: 8px; margin-top: 15px;">
+            <p style="margin-top: 0; font-weight: bold; color: #e60000;" id="operadora-texto">SMS PUSH mKesh / M-PESA / e-MOLA 📱</p>
+            <p>Introduza o seu PIN fictício para autorizar o pagamento de <strong id="pagamento-valor">0</strong> MT:</p>
+            <input type="password" id="pin-carteira" placeholder="PIN de 4 dígitos" style="padding: 10px; width: 60%; font-size: 16px; text-align: center; border-radius: 5px; border: 1px solid #ccc; margin-bottom: 10px;"><br>
+            <button onclick="confirmarPagamento()" style="background: #28a745; color: white; border: none; padding: 10px 20px; font-weight: bold; border-radius: 5px; cursor: pointer;">Confirmar e Pagar</button>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        const map = L.map('map').setView([-25.9692, 32.5732], 13);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap'
+        }).addTo(map);
+
+        let userMarker;
+        let latitudeAtual = -25.9692;
+        let longitudeAtual = 32.5732;
+        let pedidoAtivoId = null;
+        let intervalVerificacao = null;
+
+        function definirLocalizacao(lat, lon) {
+            latitudeAtual = lat;
+            longitudeAtual = lon;
+            if (userMarker) {
+                userMarker.setLatLng([lat, lon]);
+            } else {
+                userMarker = L.marker([lat, lon]).addTo(map).bindPopup("Estás aqui! 📍").openPopup();
+            }
+            map.setView([lat, lon], 16);
+            
+            // Simular alteração do preço dependendo de onde clicas (distância ao centro de Maputo)
+            const dist = Math.sqrt(Math.pow(lat - (-25.9692), 2) + Math.pow(lon - (32.5732), 2)) * 100;
+            const estMin = Math.round(150 + (dist * 40));
+            const estMax = Math.round(150 + (dist * 60));
+            document.getElementById('estimativa-valor').innerText = `${estMin} - ${estMax} MT`;
+        }
+
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(position => {
+                definirLocalizacao(position.coords.latitude, position.coords.longitude);
+            });
+        }
+
+        map.on('click', function(e) {
+            definirLocalizacao(e.latlng.lat, e.latlng.lng);
+        });
+
+        function solicitarTaxi() {
+            const phone = document.getElementById('phone').value;
+            const dest = document.getElementById('destination').value;
+            
+            if (!phone) {
+                alert("Por favor, introduz o teu número de telefone.");
+                return;
+            }
+
+            // Distância simulada para cálculo de tarifa no servidor
+            const distSimulada = Math.random() * 4 + 1; 
+
+            fetch('/api/pedir', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    telefone: phone,
+                    destino: dest,
+                    latitude: latitudeAtual,
+                    longitude: longitudeAtual,
+                    distanciaEstimada: distSimulada
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.pedidoId) {
+                    pedidoAtivoId = data.pedidoId;
+                    
+                    // Transiciona para o ecrã de espera
+                    document.getElementById('painel-principal').style.display = 'none';
+                    document.getElementById('painel-status').style.display = 'block';
+                    document.getElementById('status-titulo').innerText = "A procurar motorista... 🔍";
+                    document.getElementById('status-descricao').innerHTML = `Pedido #${data.pedidoId} enviado.<br>Tarifa Estimada: <strong>${data.tarifa} MT</strong>`;
+                    
+                    // Inicia verificação do estado a cada 3 segundos
+                    intervalVerificacao = setInterval(verificarEstadoCorrida, 3000);
+                }
+            });
+        }
+
+        function verificarEstadoCorrida() {
+            if (!pedidoAtivoId) return;
+
+            fetch(`/api/pedido/${pedidoAtivoId}`)
+                .then(res => res.json())
+                .then(pedido => {
+                    const titulo = document.getElementById('status-titulo');
+                    const desc = document.getElementById('status-descricao');
+
+                    if (pedido.estado === "Aceite") {
+                        titulo.innerText = "Motorista a caminho! 🚖";
+                        desc.innerText = `O motorista com o número do painel aceitou a sua corrida. Valor a pagar no final: ${pedido.tarifa} MT.`;
+                    } else if (pedido.estado === "Em Viagem") {
+                        titulo.innerText = "Em viagem... 🗺️";
+                        desc.innerText = "Tenha uma boa viagem! Acompanhe o trajeto.";
+                    } else if (pedido.estado === "Aguardando_Pagamento") {
+                        titulo.innerText = "Viagem Concluída! 🏁";
+                        desc.innerText = "Por favor, efetue o pagamento para encerrar o serviço.";
+                        
+                        // Mostra o pop-up de simulação do Mobile Money
+                        document.getElementById('area-pagamento').style.display = 'block';
+                        document.getElementById('pagamento-valor').innerText = pedido.tarifa;
+                        
+			// Define a operadora correta baseada nos prefixos de Moçambique 🇲🇿
+			const prefixo = pedido.telefone.substring(0, 2);
+			if (prefixo === "82" || prefixo === "83") {
+			    document.getElementById('operadora-texto').innerText = "SMS PUSH MKESH (TMCEL) 📱";
+			} else if (prefixo === "84" || prefixo === "85") {
+			    document.getElementById('operadora-texto').innerText = "SMS PUSH M-PESA (VODACOM) 📱";
+			} else if (prefixo === "86" || prefixo === "87") {
+			    document.getElementById('operadora-texto').innerText = "SMS PUSH e-MOLA (MOVITEL) 📱";
+			} else {
+			    document.getElementById('operadora-texto').innerText = "SMS PUSH (CARTEIRA MÓVEL) 📱";
+			}
+                    } else if (pedido.estado === "Pago") {
+                        titulo.innerText = "Obrigado! Corrida Paga. 🎉";
+                        desc.innerText = "O pagamento foi recebido com sucesso. Já pode fechar esta página.";
+                        document.getElementById('area-pagamento').style.display = 'none';
+                        clearInterval(intervalVerificacao);
+                    }
+                });
+        }
+
+        function confirmarPagamento() {
+            const pin = document.getElementById('pin-carteira').value;
+            if (!pin || pin.length < 4) {
+                alert("Por favor, introduza um PIN simulado válido de 4 dígitos.");
+                return;
+            }
+
+            fetch(`/api/pedido/${pedidoAtivoId}/pagar`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ pin: pin })
+            })
+            .then(res => res.json())
+            .then(data => {
+                alert("PIN processado! Pagamento efetuado.");
+                verificarEstadoCorrida();
+            });
+        }
+    </script>
+</body>
+</html>

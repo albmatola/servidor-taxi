@@ -7,70 +7,49 @@ const PORT = process.env.PORT || 3000;
 let pedidosDeTaxi = [];
 
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.static(path.join(__dirname)));
 
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-// Array em memória para guardar os pedidos temporariamente
-let pedidos = [];
-let proximoId = 1;
+// ROTA 1: Criar novo pedido com estimativa de tarifa
+app.post('/api/pedir', (req, res) => {
+    const { telefone, destino, latitude, longitude, distanciaEstimada } = req.body;
 
-// Rota para Criar um Pedido (POST)
-app.post('/api/pedidos', (req, res) => {
-    const { telefone, destino, latitude, longitude, tarifa } = req.body;
-
-    if (!telefone || !destino) {
-        return res.status(400).json({ erro: "Telefone e destino são obrigatórios." });
+    if (!telefone || !latitude || !longitude) {
+        return res.status(400).json({ erro: "Dados incompletos." });
     }
+
+    // Cálculo simples: Taxa base de 150 MT + 50 MT por "unidade de distância" fictícia
+    const distancia = distanciaEstimada || Math.random() * 5 + 1; // caso não venha distância, gera entre 1km e 6km
+    const tarifaEstimada = Math.round(150 + (distancia * 50));
 
     const novoPedido = {
-        id: proximoId++,
+        id: pedidosDeTaxi.length + 1,
         telefone,
-        destino,
-        latitude: latitude || -25.9692,
-        longitude: longitude || 32.5732,
-        tarifa: tarifa || 150, // Se não vier tarifa, assume a base de 150 MT
-        estado: "Pendente"
+        destino: destino || "Não especificado",
+        latitude,
+        longitude,
+        tarifa: tarifaEstimada,
+        estado: "Pendente",         // Pendente, Aceite, Em Viagem, Aguardando_Pagamento, Pago
+        pagamentoStatus: "Não Pago", // Não Pago, Processando, Pago
+        data: new Date()
     };
 
-    pedidos.push(novoPedido);
-    console.log("Novo pedido recebido:", novoPedido);
-    
-    // IMPORTANTE: Responder estritamente com JSON
-    res.status(201).json(novoPedido);
+    pedidosDeTaxi.push(novoPedido);
+    console.log("Novo pedido com tarifa registado! 💰", novoPedido);
+
+    res.status(201).json({ 
+        mensagem: "Pedido registado!", 
+        pedidoId: novoPedido.id,
+        tarifa: tarifaEstimada 
+    });
 });
 
-// Rota para Consultar um Pedido Único (GET)
-app.get('/api/pedido/:id', (req, res) => {
-    const idPedido = parseInt(req.params.id);
-    const pedido = pedidos.find(p => p.id === idPedido);
-
-    if (!pedido) {
-        return res.status(404).json({ erro: "Pedido não encontrado." });
-    }
-
-    res.json(pedido);
-});
-
-// Rota para o painel do motorista listar todos os pedidos (GET)
+// ROTA 2: Listar todos os pedidos
 app.get('/api/pedidos', (req, res) => {
-    res.json(pedidos);
-});
-
-// Rota para Atualizar o Estado do Pedido (POST)
-app.post('/api/pedido/:id/estado', (req, res) => {
-    const idPedido = parseInt(req.params.id);
-    const { novoEstado } = req.body;
-    
-    const pedido = pedidos.find(p => p.id === idPedido);
-    if (!pedido) {
-        return res.status(404).json({ erro: "Pedido não encontrado." });
-    }
-
-    pedido.estado = novoEstado;
-    res.json(pedido);
+    res.json(pedidosDeTaxi);
 });
 
 // ROTA 3: Consultar estado de um pedido específico (para o cliente verificar se já foi aceite ou pago)
