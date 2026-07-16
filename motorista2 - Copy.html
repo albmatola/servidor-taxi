@@ -36,33 +36,15 @@
     </div>
 
     <script>
-	// Função inteligente que suporta prefixos internacionais (Moçambique 🇲🇿 e Portugal 🇵🇹)
-	function obterCarteiraMovel(telefone) {
-    	if (!telefone) return "Método de Pagamento";
-    
-    	// Limpa espaços, traços, parêntesis e o símbolo + (para análise limpa)
-    	let numLimpo = telefone.replace(/[\s\-\(\)\+]/g, '');
-
-    	// 1. VERIFICAÇÃO DE PORTUGAL (Prefixo 351)
-    	if (numLimpo.startsWith('351')) {
-        return "Simulador Multibanco / CC (PT 🇵🇹)";
-    	}
-
-    	// 2. VERIFICAÇÃO DE MOÇAMBIQUE (Prefixo 258 ou Direto)
-    	// Se começar com o prefixo 258, removemos para analisar a operadora local
-    	if (numLimpo.startsWith('258')) {
-        numLimpo = numLimpo.substring(3);
-	}
-
-	// Analisa os primeiros dígitos do número local moçambicano
-    	const prefixoLocal = numLimpo.substring(0, 2);
-    	if (prefixoLocal === "82" || prefixoLocal === "83") return "mKesh 🇲🇿";
-    	if (prefixoLocal === "84" || prefixoLocal === "85") return "M-Pesa 🇲🇿";
-    	if (prefixoLocal === "86" || prefixoLocal === "87") return "e-Mola 🇲🇿";
-
-    	// 3. CASO SEJA OUTRO PAÍS
-    	return "Pagamento Internacional 🌍";
-	}
+        // Função auxiliar para descobrir a carteira móvel pelo prefixo moçambicano 🇲🇿
+        function obterCarteiraMovel(telefone) {
+            if (!telefone) return "Telemóvel";
+            const prefixo = telefone.substring(0, 2);
+            if (prefixo === "82" || prefixo === "83") return "mKesh";
+            if (prefixo === "84" || prefixo === "85") return "M-Pesa";
+            if (prefixo === "86" || prefixo === "87") return "e-Mola";
+            return "Carteira Móvel";
+        }
 
         function carregarPedidos() {
             fetch('/api/pedidos')
@@ -122,7 +104,7 @@
                         container.appendChild(card);
                     });
                 })
-                .catch(error => console.error("Erro ao obter os pedidos:", error));
+                .catch(error => console.error("Erro:", error));
         }
 
         function alterarEstado(id, novoEstado) {
@@ -134,8 +116,7 @@
             .then(res => res.json())
             .then(() => {
                 carregarPedidos();
-            })
-            .catch(error => console.error("Erro ao alterar o estado:", error));
+            });
         }
 
         carregarPedidos();
