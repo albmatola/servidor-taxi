@@ -125,8 +125,10 @@
         // Ouvir mensagens que chegam do passageiro
         socket.on('mensagem_recebida', (dados) => {
             if (idViagemAtiva && dados.pedidoId === idViagemAtiva) {
-                adicionarMensagemAoEcrã(dados.texto, 'outra');
-            }
+                if (dados.remetente !== 'motorista') {
+			adicionarMensagemAoEcrã(dados.texto, 'outra');
+            	}
+	     }
         });
     } catch(e) {
         console.warn("Socket.io não pôde ser inicializado. Garante que o servidor Node tem o Socket.io configurado.", e);

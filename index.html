@@ -154,7 +154,10 @@
         // Ouvir mensagens enviadas pelo motorista
         socket.on('mensagem_recebida', (dados) => {
             if (idPedidoAtivo && dados.pedidoId === idPedidoAtivo) {
-                adicionarMensagemAoEcrã(dados.texto, 'outra');
+		// Se quem enviou NÃO foi o cliente, então é uma mensagem do motorista
+		if (dados.remetente !== 'cliente') { // ou 'passageiro', dependendo do teu código
+            		adicionarMensagemAoEcrã(dados.texto, 'outra');
+        	}
             }
         });
     } catch(e) {
