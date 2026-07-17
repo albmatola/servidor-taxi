@@ -201,11 +201,24 @@ io.on('connection', (socket) => {
         console.log(`💬 Mensagem em [${nomeSala}] de [${remetente}]: "${texto}"`);
 
         // Envia para TODOS os utilizadores na sala (incluindo o que enviou)
-        // Usar "io.to" garante que ambos os lados recebem o sinal em tempo real
         io.to(nomeSala).emit('mensagem_recebida', {
             pedidoId: pedidoId,
             texto: texto,
             remetente: remetente
+        });
+    });
+
+    // =========================================================================
+    // 🚗 NOVO EVENTO: Receber Localização do Motorista e Enviar ao Passageiro
+    // =========================================================================
+    socket.on('atualizar_localizacao_motorista', (dados) => {
+        const { pedidoId, latitude, longitude } = dados;
+        const nomeSala = `viagem_${pedidoId}`;
+
+        // Envia as coordenadas para todos os outros aparelhos ligados a esta sala (o teu passageiro)
+        socket.to(nomeSala).emit('motorista_moveu', {
+            latitude: latitude,
+            longitude: longitude
         });
     });
 

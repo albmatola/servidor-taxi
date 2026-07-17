@@ -14,6 +14,7 @@
         .btn-aceitar { background-color: #28a745; color: white; }
         .btn-viagem { background-color: #fd7e14; color: white; }
         .btn-concluir { background-color: #e60000; color: white; }
+        .btn-simular { background-color: #6f42c1; color: white; }
         .no-pedidos { color: #777; font-style: italic; }
         .status-badge { display: inline-block; padding: 3px 8px; border-radius: 12px; font-size: 12px; font-weight: bold; text-transform: uppercase; }
         .badge-pendente { background: #ffeeba; color: #856404; }
@@ -118,6 +119,10 @@
     let socket;
     let idViagemAtiva = null; // Guarda o ID da viagem em curso para o Chat
     let estaAProcessar = false; // Bloqueia apenas cliques múltiplos em botões de ação
+    
+    // GPS do Motorista em tempo real
+    let watchId = null;
+    let simularIntervalId = null; // Guardar ID da simulação de movimento
 
     try {
         socket = io();
@@ -126,9 +131,9 @@
         socket.on('mensagem_recebida', (dados) => {
             if (idViagemAtiva && dados.pedidoId === idViagemAtiva) {
                 if (dados.remetente !== 'motorista') {
-			adicionarMensagemAoEcrã(dados.texto, 'outra');
-            	}
-	     }
+                    adicionarMensagemAoEcrã(dados.texto, 'outra');
+                }
+            }
         });
     } catch(e) {
         console.warn("Socket.io não pôde ser inicializado. Garante que o servidor Node tem o Socket.io configurado.", e);
@@ -155,7 +160,6 @@
     }
 
     function carregarPedidos() {
-        // Removido o bloqueador "estaAProcessar" daqui para garantir que as atualizações automáticas funcionem sempre.
         fetch('/api/pedidos')
             .then(response => {
                 if (!response.ok) throw new Error("Erro de resposta do servidor");
@@ -167,6 +171,8 @@
                 if (pedidos.length === 0) {
                     container.innerHTML = '<p class="no-pedidos">Nenhum pedido de táxi de momento.</p>';
                     esconderChat();
+                    pararPartilhaLocalizacao();
+                    pararSimulacaoMovimento();
                     return;
                 }
 
@@ -200,9 +206,13 @@
                         botoesAcao = `
                             <a href="${gpsLink}" target="_blank" class="btn btn-gps">Abrir GPS 🧭</a>
                             <button class="btn btn-viagem" onclick="alterarEstado(${pedido.id}, 'Em Viagem', this)">Iniciar Viagem ▶️</button>
+                            <button class="btn btn-simular" id="btn-simulador-${pedido.id}" onclick="toggleSimularMovimento(${pedido.id}, ${pedido.latitude}, ${pedido.longitude})">Simular Movimento 🚗</button>
                         `;
                     } else if (pedido.estado === "Em Viagem") {
-                        botoesAcao = `<button class="btn btn-concluir" onclick="alterarEstado(${pedido.id}, 'Aguardando_Pagamento', this)">Concluir e Cobrar por Telemóvel 🏁</button>`;
+                        botoesAcao = `
+                            <button class="btn btn-concluir" onclick="alterarEstado(${pedido.id}, 'Aguardando_Pagamento', this)">Concluir e Cobrar por Telemóvel 🏁</button>
+                            <button class="btn btn-simular" id="btn-simulador-${pedido.id}" onclick="toggleSimularMovimento(${pedido.id}, ${pedido.latitude}, ${pedido.longitude})">Simular Movimento 🚗</button>
+                        `;
                     } else if (pedido.estado === "Aguardando_Pagamento") {
                         botoesAcao = `<p style="color: #721c24; font-weight: bold; margin-top: 10px;">⌛ Aguardando que o cliente autorize o débito de ${pedido.tarifa} MT via ${carteira}...</p>`;
                     } else if (pedido.estado === "Pago") {
@@ -227,15 +237,20 @@
                 container.innerHTML = '';
                 container.appendChild(fragmento);
 
-                // Lógica de exibição do chat
+                // Lógica de exibição do chat e gestão de envio de localização
                 if (temViagemAtivaParaChat) {
                     if (idViagemAtiva !== idNovaViagemAtiva) {
                         idViagemAtiva = idNovaViagemAtiva;
                         document.getElementById('mensagens-box').innerHTML = ''; 
+                        
+                        // Começa a monitorizar o GPS real do motorista em background
+                        iniciarPartilhaLocalizacao(idViagemAtiva);
                     }
                     mostrarChat(idViagemAtiva);
                 } else {
                     esconderChat();
+                    pararPartilhaLocalizacao();
+                    pararSimulacaoMovimento();
                 }
             })
             .catch(error => {
@@ -267,6 +282,8 @@
             estaAProcessar = false;
             if (novoEstado === "Aguardando_Pagamento" || novoEstado === "Pago") {
                 esconderChat();
+                pararPartilhaLocalizacao();
+                pararSimulacaoMovimento();
             }
             carregarPedidos(); // Atualiza a UI imediatamente após o sucesso
         })
@@ -279,6 +296,102 @@
                 botaoElemento.innerText = "Tentar novamente";
             }
         });
+    }
+
+    // ==========================================
+    // 🌍 GEOLOCALIZAÇÃO REAL (GPS) DO MOTORISTA
+    // ==========================================
+    function iniciarPartilhaLocalizacao(pedidoId) {
+        // Evita duplicar se o watch já estiver ativo
+        if (watchId !== null) return;
+
+        if (navigator.geolocation) {
+            watchId = navigator.geolocation.watchPosition((pos) => {
+                // Se a simulação virtual estiver ativa, não enviamos o GPS real (para não dar conflito)
+                if (simularIntervalId !== null) return;
+
+                const dadosLocalizacao = {
+                    pedidoId: pedidoId,
+                    latitude: pos.coords.latitude,
+                    longitude: pos.coords.longitude
+                };
+
+                socket.emit('atualizar_localizacao_motorista', dadosLocalizacao);
+                console.log("📍 GPS Real enviado:", dadosLocalizacao);
+            }, (erro) => {
+                console.warn("Aviso de Geofencing / GPS desativado no navegador:", erro.message);
+            }, {
+                enableHighAccuracy: true,
+                maximumAge: 0
+            });
+        }
+    }
+
+    function pararPartilhaLocalizacao() {
+        if (watchId !== null) {
+            navigator.geolocation.clearWatch(watchId);
+            watchId = null;
+            console.log("🛑 GPS Real desativado.");
+        }
+    }
+
+    // ==========================================
+    // 🚗 SIMULADOR VIRTUAL (Para apresentação/defesa)
+    // ==========================================
+    function toggleSimularMovimento(pedidoId, latDestino, lonDestino) {
+        const btn = document.getElementById(`btn-simulador-${pedidoId}`);
+
+        if (simularIntervalId !== null) {
+            pararSimulacaoMovimento();
+            if (btn) btn.innerText = "Simular Movimento 🚗";
+            return;
+        }
+
+        if (btn) btn.innerText = "Parar Simulação 🛑";
+
+        // Coordenadas iniciais fictícias (ex: ligeiramente afastado do cliente em Maputo)
+        let latAtual = latDestino - 0.005; 
+        let lonAtual = lonDestino - 0.005;
+
+        console.log("🏁 Começando simulação a caminho de:", latDestino, lonDestino);
+
+        simularIntervalId = setInterval(() => {
+            // Calcula pequenas frações para o carro avançar suavemente até o cliente
+            const difLat = latDestino - latAtual;
+            const difLon = lonDestino - lonAtual;
+
+            // Se estiver extremamente perto, para o veículo no destino
+            if (Math.abs(difLat) < 0.0001 && Math.abs(difLon) < 0.0001) {
+                latAtual = latDestino;
+                lonAtual = lonDestino;
+                pararSimulacaoMovimento();
+                if (btn) btn.innerText = "Chegou ao Destino! 🎉";
+                console.log("🏁 O motorista virtual chegou ao cliente!");
+            } else {
+                // Avança 10% da distância restante a cada segundo
+                latAtual += difLat * 0.1;
+                lonAtual += difLon * 0.1;
+            }
+
+            const dadosFake = {
+                pedidoId: pedidoId,
+                latitude: latAtual,
+                longitude: lonAtual
+            };
+
+            // Dispara para o Socket.io exatamente como se fosse o GPS a mexer-se
+            socket.emit('atualizar_localizacao_motorista', dadosFake);
+            console.log("🚗 Carro Virtual moveu-se para:", dadosFake);
+
+        }, 1000); // Atualiza de 1 em 1 segundo
+    }
+
+    function pararSimulacaoMovimento() {
+        if (simularIntervalId !== null) {
+            clearInterval(simularIntervalId);
+            simularIntervalId = null;
+            console.log("🛑 Simulação de movimento parada.");
+        }
     }
 
     // ==========================================
@@ -314,7 +427,7 @@
         if (mensagem && idViagemAtiva && socket) {
             socket.emit('enviar_mensagem', {
                 pedidoId: idViagemAtiva,
-                texto: message = mensagem,
+                texto: mensagem,
                 remetente: 'motorista'
             });
 

@@ -148,21 +148,7 @@
 <script>
     // Inicialização da ligação WebSockets com tratamento de segurança
     let socket;
-    try {
-        socket = io();
-        
-        // Ouvir mensagens enviadas pelo motorista
-        socket.on('mensagem_recebida', (dados) => {
-            if (idPedidoAtivo && dados.pedidoId === idPedidoAtivo) {
-                // Se quem enviou NÃO foi o cliente, então é uma mensagem do motorista
-                if (dados.remetente !== 'passageiro') { 
-                    adicionarMensagemAoEcrã(dados.texto, 'outra');
-                }
-            }
-        });
-    } catch(e) {
-        console.warn("Socket.io não disponível ou offline.", e);
-    }
+    let idPedidoAtivo = null; // Guarda o ID da viagem em curso para o Chat
 
     // Configurações de Tarifas de Maputo 🇲🇿
     const TARIFA_BASE = 150; // Taxa de partida (MT)
@@ -171,54 +157,133 @@
     let mapa;
     let marcadorUsuario;
     let marcadorDestino;
+    let marcadorMotorista = null;
     let rotaLinha;
 
-    let latUsuario = -25.9692; // Centro de Maputo por defeito
-    let lonUsuario = 32.5732;
+    let latUsuario = -25.9622; // Foco padrão inicial cobrindo Maputo / Matola
+    let lonUsuario = 32.5312;
     let latDestino = null;
     let lonDestino = null;
     let distanciaFinalKm = 0;
     let tarifaFinalMt = 0;
-    
-    let idPedidoAtivo = null; // Guarda o ID da viagem em curso para o Chat
 
-    // 1. Inicializar o Mapa focado em Maputo
+    try {
+        socket = io();
+        
+        // Ouvir mensagens enviadas pelo motorista[cite: 1]
+        socket.on('mensagem_recebida', (dados) => {
+            if (idPedidoAtivo && dados.pedidoId === idPedidoAtivo) {
+                // Se quem enviou NÃO foi o cliente, então é uma mensagem do motorista[cite: 1]
+                if (dados.remetente !== 'passageiro') { 
+                    adicionarMensagemAoEcrã(dados.texto, 'outra');
+                }
+            }
+        });
+
+        // 📍 OUVIR LOCALIZAÇÃO DO MOTORISTA EM TEMPO REAL
+        socket.on('localizacao_motorista_atualizada', (dados) => {
+            if (idPedidoAtivo && dados.pedidoId === idPedidoAtivo) {
+                console.log("📍 Nova posição do motorista recebida:", dados);
+                atualizarMarcadorMotorista(dados.latitude, dados.longitude);
+            }
+        });
+
+    } catch(e) {
+        console.warn("Socket.io não disponível ou offline.", e);
+    }
+    
+    // 1. Inicializar o Mapa focado em Maputo/Matola
     function inicializarMapa() {
         if (typeof L === 'undefined') {
             setTimeout(inicializarMapa, 100);
             return;
         }
 
-        mapa = L.map('mapa').setView([latUsuario, lonUsuario], 13);
+        mapa = L.map('mapa').setView([latUsuario, lonUsuario], 12);
 
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '© OpenStreetMap contributors'
         }).addTo(mapa);
+
+        // Ícone azul personalizado para o Passageiro
+        const blueIcon = L.icon({
+            iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-blue.png',
+            shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.3.1/images/marker-shadow.png',
+            iconSize: [25, 41],
+            iconAnchor: [12, 41],
+            popupAnchor: [1, -34],
+            shadowSize: [41, 41]
+        });
 
         if (navigator.geolocation) {
             navigator.geolocation.getCurrentPosition(pos => {
                 latUsuario = pos.coords.latitude;
                 lonUsuario = pos.coords.longitude;
                 mapa.setView([latUsuario, lonUsuario], 15);
-
-                if (marcadorUsuario) mapa.removeLayer(marcadorUsuario);
-                
-                marcadorUsuario = L.marker([latUsuario, lonUsuario], {
-                    title: "Estás Aqui",
-                    draggable: false
-                }).addTo(mapa).bindPopup("Estás Aqui 📍").openPopup();
+                configurarMarcadorPartida(blueIcon);
             }, error => {
-                console.warn("Acesso à localização negado. Usando centro de Maputo.");
-                configurarMarcadorPadrao();
+                console.warn("Acesso à localização do navegador indisponível. Usando predefinição.");
+                configurarMarcadorPartida(blueIcon);
             });
         } else {
-            configurarMarcadorPadrao();
+            configurarMarcadorPartida(blueIcon);
         }
     }
 
-    function configurarMarcadorPadrao() {
-        marcadorUsuario = L.marker([latUsuario, lonUsuario]).addTo(mapa)
-            .bindPopup("Maputo (Centro) 📍").openPopup();
+    // Configura o marcador do passageiro como ARRASTÁVEL para correção na Matola
+    function configurarMarcadorPartida(icone) {
+        if (marcadorUsuario) mapa.removeLayer(marcadorUsuario);
+
+        marcadorUsuario = L.marker([latUsuario, lonUsuario], {
+            icon: icone,
+            draggable: true, // Habilita o arrasto manual
+            title: "Onde estás? (Arrasta o pino se necessário)"
+        }).addTo(mapa);
+
+        marcadorUsuario.bindPopup("<b>O teu ponto de partida</b><br>Arrasta este marcador se a tua posição não estiver correta!").openPopup();
+
+        // Sempre que o utilizador arrastar o marcador manual:
+        marcadorUsuario.on('dragend', function(event) {
+            const posicao = event.target.getLatLng();
+            latUsuario = posicao.lat;
+            lonUsuario = posicao.lng;
+            console.log("📍 Partida redefinida pelo utilizador:", latUsuario, lonUsuario);
+
+            // Se o destino já existir, redesenha o trajeto e recalcula a tarifa
+            if (latDestino) {
+                desenharRotaERecalcular();
+            }
+        });
+    }
+
+    function atualizarMarcadorMotorista(lat, lon) {
+        const taxiIcon = L.icon({
+            iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-yellow.png',
+            shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.3.1/images/marker-shadow.png',
+            iconSize: [25, 41],
+            iconAnchor: [12, 41],
+            popupAnchor: [1, -34],
+            shadowSize: [41, 41]
+        });
+
+        if (marcadorMotorista) {
+            marcadorMotorista.setLatLng([lat, lon]);
+        } else {
+            marcadorMotorista = L.marker([lat, lon], { icon: taxiIcon }).addTo(mapa);
+            marcadorMotorista.bindPopup("O teu Táxi 🚖").openPopup();
+        }
+
+        if (marcadorUsuario) {
+            const grupo = new L.featureGroup([marcadorUsuario, marcadorMotorista]);
+            mapa.fitBounds(grupo.getBounds().pad(0.2));
+        }
+    }
+
+    function removerMarcadorMotorista() {
+        if (marcadorMotorista) {
+            mapa.removeLayer(marcadorMotorista);
+            marcadorMotorista = null;
+        }
     }
 
     function validarTelefoneMoçambique(telefone) {
@@ -226,7 +291,7 @@
         return regex.test(telefone);
     }
 
-    // 2. Procurar locais em Maputo em tempo real (Nominatim API)
+    // 2. Procurar locais em Maputo/Matola em tempo real (Nominatim API)
     let timeoutBusca;
     function buscarDestinos(texto) {
         clearTimeout(timeoutBusca);
@@ -265,7 +330,7 @@
         }, 400);
     }
 
-    // 3. Quando o passageiro clica numa sugestão do Auto-complete
+    // 3. Seleção do destino a partir do autocomplete
     function selecionarDestino(lat, lon, nome) {
         latDestino = parseFloat(lat);
         lonDestino = parseFloat(lon);
@@ -288,6 +353,10 @@
         }
         marcadorDestino.bindPopup("Destino Selecionado 🏁").openPopup();
 
+        desenharRotaERecalcular();
+    }
+
+    function desenharRotaERecalcular() {
         if (rotaLinha) {
             rotaLinha.setLatLngs([[latUsuario, lonUsuario], [latDestino, lonDestino]]);
         } else {
@@ -394,12 +463,13 @@
                         statusBox.style.color = "#856404";
                         statusBox.innerText = "🔎 À procura de um motorista por perto...";
                         esconderChat();
+                        removerMarcadorMotorista();
                     } 
                     else if (pedido.estado === "Aceite") {
                         statusBox.style.backgroundColor = "#cce5ff";
                         statusBox.style.color = "#004085";
                         statusBox.innerText = "🚖 O motorista aceitou o teu pedido e está a caminho!";
-                        mostrarChat(); // Mostra o chat em tempo real com o motorista
+                        mostrarChat(); 
                     } 
                     else if (pedido.estado === "Em Viagem") {
                         statusBox.style.backgroundColor = "#ffe8d6";
@@ -411,17 +481,14 @@
                         statusBox.style.backgroundColor = "#f8d7da";
                         statusBox.style.color = "#721c24";
                         
-                        // 1. Identificar a operadora do cliente
                         const operadora = obterCarteiraMovel(pedido.telefone);
                         
-                        // 2. Definir o número da tua empresa com base na operadora dele
                         let numeroEmpresa = "";
                         if (operadora === "M-Pesa") numeroEmpresa = "84 592 2620";
                         else if (operadora === "e-Mola") numeroEmpresa = "86 592 2620";
                         else if (operadora === "mKesh") numeroEmpresa = "82 592 2620";
-                        else numeroEmpresa = "82 592 2620 (mkesh)"; // Fallback
+                        else numeroEmpresa = "82 592 2620 (mkesh)"; 
 
-                        // 3. Desenhar o ecrã com as instruções de transferência manual
                         statusBox.innerHTML = `
                             <div style="text-align: left; padding: 5px;">
                                 <h3 style="margin-top: 0; color: #721c24; text-align: center;">🏁 Viagem Terminada!</h3>
@@ -440,12 +507,14 @@
                             </div>
                         `;
                         esconderChat(); 
+                        removerMarcadorMotorista();
                     }
                     else if (pedido.estado === "Pago") {
                         statusBox.style.backgroundColor = "#d4edda";
                         statusBox.style.color = "#155724";
                         statusBox.innerHTML = `🎉 Pago com Sucesso via ${operadora}! Obrigado por viajares com o TaxiExpress!`;
                         esconderChat();
+                        removerMarcadorMotorista();
                         clearInterval(checkStatusInterval);
                         document.getElementById('btn-chamar').disabled = false;
                         idPedidoAtivo = null;
@@ -458,7 +527,7 @@
     }
 
     // ==========================================
-    // ⚙️ FUNÇÕES DO CHAT DE CONVERSA
+    // ⚙️ FUNÇÕES DO CHAT DE CONVERSA (CORRIGIDAS)
     // ==========================================
     function mostrarChat() {
         document.getElementById('chat-passageiro').style.display = 'flex';
@@ -474,15 +543,16 @@
         }
     }
 
+    // Função corrigida para alinhar com o payload do back-end / motorista
     function enviarMensagemChat() {
         const input = document.getElementById('chat-input');
         const mensagem = input.value.trim();
 
         if (mensagem && idPedidoAtivo && socket) {
-            // Envia a mensagem via socket
+            // Emite a mensagem com o formato exato que o servidor espera reencaminhar
             socket.emit('enviar_mensagem', {
                 pedidoId: idPedidoAtivo,
-                texto: message, // alterado para enviar o texto correto
+                texto: mensagem,      // Alinhado com o campo 'texto' que o servidor lê
                 remetente: 'passageiro'
             });
 
@@ -503,10 +573,8 @@
     }
 
     // ==========================================
-    // 💰 FUNÇÕES DE PAGAMENTO MANUAL E SIMULAÇÕES
+    // 💰 FUNÇÕES DE PAGAMENTO MANUAL
     // ==========================================
-
-    // Função que envia o código de confirmação manual ao Servidor
     function confirmarEnvioManual(idPedido) {
         const codigoInput = document.getElementById('codigo-transacao');
         if (!codigoInput) return;
@@ -538,39 +606,6 @@
         })
         .catch(err => {
             alert("Não foi possível enviar a confirmação: " + err.message);
-        });
-    }
-
-    // Pergunta o PIN ao utilizador antes de enviar o sinal ao servidor (Legado/Opcional)
-    function solicitarPin(id, operadora) {
-        const pinDigitado = prompt(`[${operadora}] Introduz o teu PIN de 4 dígitos para autorizar o pagamento:`);
-        
-        if (pinDigitado === null) return; 
-
-        if (pinDigitado.length < 4 || isNaN(pinDigitado)) {
-            alert("Erro: O PIN deve conter pelo menos 4 números.");
-            return;
-        }
-
-        simularPagamento(id, pinDigitado);
-    }
-
-    // Função de pagamento antiga para enviar o PIN para a API (Legado/Opcional)
-    function simularPagamento(id, pin) {
-        fetch(`/api/pedido/${id}/pagar`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ pin: pin })
-        })
-        .then(res => {
-            if (!res.ok) throw new Error("Erro ao processar o pagamento.");
-            return res.json();
-        })
-        .then(dados => {
-            console.log("Sinal de pagamento com PIN enviado com sucesso!");
-        })
-        .catch(err => {
-            alert("Não foi possível simular o pagamento: " + err.message);
         });
     }
 
